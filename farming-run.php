@@ -412,6 +412,7 @@ foreach ($refined_outputs as $output) {
                         <a href="#" class="tab" data-tab="contributions">Contributions</a>
                         <?php if ($is_leader || $is_admin): ?>
                             <a href="#" class="tab" data-tab="manage">Manage</a>
+                            <a href="#" class="tab" data-tab="refine">Refine & Distribute</a>
                         <?php endif; ?>
                     </div>
 
@@ -652,6 +653,54 @@ foreach ($refined_outputs as $output) {
                             <?php endforeach; ?>
                         </div>
                     </div>
+                    
+                    <div id="refine" class="tab-content">
+                        <h3>Refine & Distribute</h3>
+                        <div class="collection-form">
+                            <form id="refine-form" onsubmit="return false;">
+                                <div class="form-group">
+                                    <label>Algorithm</label>
+                                    <select id="algo" class="form-control">
+                                        <option value="weighted_across_runs">Weighted across runs</option>
+                                        <option value="equal_per_run">Equal per run</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>
+                                        <input type="checkbox" id="discounted"> Discounted refinery (7,500 → 200)
+                                    </label>
+                                </div>
+                                <div class="form-group">
+                                    <button type="button" class="btn btn-primary" onclick="previewSpiceRefine()">Preview Spice → Melange</button>
+                                </div>
+                            </form>
+                        </div>
+                        <div id="refine-preview" style="display:none; margin-top:1rem;">
+                            <h4>Preview</h4>
+                            <div class="table-responsive">
+                                <table class="data-table" id="preview-table">
+                                    <thead>
+                                        <tr>
+                                            <th>User</th>
+                                            <th>Input (Spice)</th>
+                                            <th>Share</th>
+                                            <th>Output (Melange)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <th>Total</th>
+                                            <th id="total-input">0</th>
+                                            <th></th>
+                                            <th id="total-output">0</th>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                            <div class="alert alert-info" id="refine-notes" style="margin-top:0.5rem;"></div>
+                        </div>
+                    </div>
                     <?php endif; ?>
                 <?php endif; ?>
 
@@ -786,6 +835,37 @@ foreach ($refined_outputs as $output) {
         } else {
             summaryDiv.style.display = 'none';
         }
+    }
+
+    // Preview Spice → Melange using backend computation
+    function previewSpiceRefine() {
+        const algo = document.getElementById('algo').value;
+        const discounted = document.getElementById('discounted').checked ? 1 : 0;
+        fetch(`/run-refine-preview.php?run_id=<?php echo (int)$run_id; ?>&algo=${encodeURIComponent(algo)}&discounted=${discounted}`, {
+            credentials: 'same-origin'
+        })
+        .then(r => r.json())
+        .then(data => {
+            const tbody = document.querySelector('#preview-table tbody');
+            tbody.innerHTML = '';
+            (data.per_user || []).forEach(row => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${row.username}</td>
+                    <td class="quantity">${Number(row.input).toLocaleString()}</td>
+                    <td>${(row.share * 100).toFixed(1)}%</td>
+                    <td class="quantity">${Number(row.output).toLocaleString()}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+            document.getElementById('total-input').textContent = Number(data.total_input || 0).toLocaleString();
+            document.getElementById('total-output').textContent = Number(data.total_output || 0).toLocaleString();
+            document.getElementById('refine-notes').textContent = data.note || '';
+            document.getElementById('refine-preview').style.display = 'block';
+        })
+        .catch(() => {
+            alert('Failed to compute preview');
+        });
     }
     </script>
 </body>

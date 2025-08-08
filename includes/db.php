@@ -523,6 +523,144 @@ function updateUserInGameName($user_id, $in_game_name) {
     return $stmt->execute([$in_game_name ?: null, $user_id]);
 }
 
+/**
+ * Compute Spice → Melange distribution across one or more runs
+ * Algorithms:
+ *  - equal_per_run: each run's spice total is split equally among its participants
+ *  - weighted_across_runs: use per-user collected spice quantities across selected runs
+ * Options:
+ *  - discounted (bool): if true, 7,500 spice → 200 melange; otherwise 10,000 → 200
+ * Returns: [
+ *  'total_input' => int,
+ *  'total_output' => int,
+ *  'per_user' => [ user_id => ['username' => string, 'input' => int, 'share' => float, 'output' => int] ]
+ * ]
+ */
+function computeSpiceToMelangeDistribution(array $run_ids, string $algorithm = 'weighted_across_runs', bool $discounted = false) {
+    if (empty($run_ids)) {
+        return ['total_input' => 0, 'total_output' => 0, 'per_user' => []];
+    }
+    $db = getDB();
+    $placeholders = implode(',', array_fill(0, count($run_ids), '?'));
+
+    // Identify spice-like resource ids (avoid Spice Coffee)
+    $spiceIds = $db->prepare("SELECT id FROM resources WHERE LOWER(name) LIKE '%spice%' AND LOWER(name) NOT LIKE '%coffee%'");
+    $spiceIds->execute();
+    $spice_ids = array_column($spiceIds->fetchAll(), 'id');
+    if (empty($spice_ids)) {
+        return ['total_input' => 0, 'total_output' => 0, 'per_user' => []];
+    }
+    $spice_placeholders = implode(',', array_fill(0, count($spice_ids), '?'));
+
+    // Totals per run
+    $stmt = $db->prepare("SELECT run_id, SUM(quantity) as qty FROM run_collections WHERE run_id IN ($placeholders) AND resource_id IN ($spice_placeholders) GROUP BY run_id");
+    $stmt->execute(array_merge($run_ids, $spice_ids));
+    $run_totals = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $run_totals[(int)$row['run_id']] = (int)$row['qty'];
+    }
+
+    // Participants per run
+    $stmt = $db->prepare("SELECT run_id, user_id FROM run_participants WHERE run_id IN ($placeholders)");
+    $stmt->execute($run_ids);
+    $participants = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $participants[(int)$row['run_id']][] = (int)$row['user_id'];
+    }
+
+    // Initialize per-user input shares
+    $per_user_input = [];
+
+    if ($algorithm === 'equal_per_run') {
+        foreach ($run_ids as $rid) {
+            $total = (int)($run_totals[$rid] ?? 0);
+            $users = $participants[$rid] ?? [];
+            $count = count($users);
+            if ($total <= 0 || $count === 0) continue;
+            $share = $total / $count;
+            foreach ($users as $uid) {
+                if (!isset($per_user_input[$uid])) $per_user_input[$uid] = 0;
+                $per_user_input[$uid] += $share;
+            }
+        }
+    } else { // weighted_across_runs
+        $stmt = $db->prepare("SELECT collected_by as user_id, SUM(quantity) as qty FROM run_collections WHERE run_id IN ($placeholders) AND resource_id IN ($spice_placeholders) AND collected_by IS NOT NULL GROUP BY collected_by");
+        $stmt->execute(array_merge($run_ids, $spice_ids));
+        foreach ($stmt->fetchAll() as $row) {
+            $per_user_input[(int)$row['user_id']] = (int)$row['qty'];
+        }
+        // If no per-user data (all NULL collections), fall back to equal_per_run
+        if (empty($per_user_input)) {
+            foreach ($run_ids as $rid) {
+                $total = (int)($run_totals[$rid] ?? 0);
+                $users = $participants[$rid] ?? [];
+                $count = count($users);
+                if ($total <= 0 || $count === 0) continue;
+                $share = $total / $count;
+                foreach ($users as $uid) {
+                    if (!isset($per_user_input[$uid])) $per_user_input[$uid] = 0;
+                    $per_user_input[$uid] += $share;
+                }
+            }
+        }
+    }
+
+    $total_input = array_sum($per_user_input);
+    $input_per_unit = $discounted ? 7500 : 10000;
+    $output_per_unit = 200;
+    $total_units = $input_per_unit > 0 ? intdiv((int)$total_input, $input_per_unit) : 0;
+    $total_output = $total_units * $output_per_unit;
+
+    // Compute weights and outputs
+    $per_user = [];
+    if ($total_input > 0 && $total_output > 0) {
+        $weights = [];
+        foreach ($per_user_input as $uid => $inp) {
+            $weights[$uid] = $inp / $total_input;
+        }
+        // Initial floor allocation
+        $allocated = 0;
+        $fractions = [];
+        foreach ($weights as $uid => $w) {
+            $out = floor($total_output * $w);
+            $per_user[$uid] = ['input' => (int)$per_user_input[$uid], 'share' => $w, 'output' => (int)$out];
+            $allocated += $out;
+            $fractions[$uid] = ($total_output * $w) - $out;
+        }
+        // Distribute remainder by largest fractional parts
+        $remainder = $total_output - $allocated;
+        if ($remainder > 0) {
+            arsort($fractions);
+            foreach (array_keys($fractions) as $uid) {
+                if ($remainder <= 0) break;
+                $per_user[$uid]['output'] += 1;
+                $remainder--;
+            }
+        }
+    } else {
+        foreach ($per_user_input as $uid => $inp) {
+            $per_user[$uid] = ['input' => (int)$inp, 'share' => 0.0, 'output' => 0];
+        }
+    }
+
+    // Attach usernames
+    if (!empty($per_user)) {
+        $uids = array_keys($per_user);
+        $ph = implode(',', array_fill(0, count($uids), '?'));
+        $q = $db->prepare("SELECT id, COALESCE(in_game_name, username) as name FROM users WHERE id IN ($ph)");
+        $q->execute($uids);
+        $map = [];
+        foreach ($q->fetchAll() as $row) { $map[(int)$row['id']] = $row['name']; }
+        foreach ($per_user as $uid => &$row) { $row['username'] = $map[$uid] ?? ('User #' . $uid); }
+    }
+
+    return [
+        'total_input' => (int)$total_input,
+        'total_output' => (int)$total_output,
+        'per_user' => $per_user
+    ];
+}
+
 // Remove participant from run
 function removeRunParticipant($run_id, $user_id) {
     $db = getDB();
