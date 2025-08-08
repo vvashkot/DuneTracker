@@ -1,0 +1,45 @@
+{
+  "name": "dune-awakening-guild-tracker",
+  "description": "A PHP web app to track Dune Awakening Deep Desert resources, using Discord OAuth for guild member authentication.",
+  "tags": ["php", "mysql", "discord-oauth2", "webapp", "gametracker"],
+  "entry": "public_html/index.php",
+  "icon": "🪐",
+  "language": "php",
+  "folders": [
+    "public_html",
+    "public_html/includes",
+    "public_html/css",
+    "public_html/js"
+  ],
+  "environment": {
+    "phpVersion": "8.1",
+    "database": {
+      "type": "mysql",
+      "host": "localhost",
+      "user": "your_db_user",
+      "password": "your_db_password",
+      "database": "your_db_name"
+    },
+    "auth": {
+      "provider": "discord",
+      "clientId": "your_discord_client_id",
+      "clientSecret": "your_discord_client_secret",
+      "redirectUri": "https://yourdomain.com/callback.php",
+      "scope": "identify"
+    }
+  },
+  "pages": [
+    "public_html/login.php",
+    "public_html/callback.php",
+    "public_html/index.php",
+    "public_html/submit.php",
+    "public_html/my-contributions.php",
+    "public_html/logout.php",
+    "public_html/admin.php"
+  ],
+  "sharedModules": [
+    "public_html/includes/db.php",
+    "public_html/includes/auth.php",
+    "public_html/config.php"
+  ]
+}

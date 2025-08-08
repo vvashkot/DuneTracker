@@ -1,0 +1,27 @@
+# Local configuration
+config.local.php
+
+# IDE and system files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+error_log
+
+# PHP sessions (if stored locally)
+sessions/
+
+# Temporary files
+*.tmp
+*.cache
+
+# Local test data
+test_*.sql
+
+# Node modules (if you add any JS tooling later)
+node_modules/
+.npm/

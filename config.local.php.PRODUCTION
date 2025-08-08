@@ -1,0 +1,54 @@
+<?php
+/**
+ * PRODUCTION Configuration for houserubi-ka.com on Hostinger
+ * Upload this file as config.local.php to your server
+ */
+
+// Database Configuration - Hostinger
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'u442226222_dune_tracker');
+define('DB_USER', 'u442226222_dune_admin');
+define('DB_PASS', 'hucpev-vUsfeb-befdo4!');
+
+// Discord OAuth Configuration - Already configured for your app
+define('DISCORD_CLIENT_ID', '1401618920301133906');
+define('DISCORD_CLIENT_SECRET', 'CHv44GjgACyh4hS_krkDjL6lCiStClc8');
+define('DISCORD_REDIRECT_URI', 'https://houserubi-ka.com/callback.php');
+define('DISCORD_SCOPE', 'identify');
+
+// Application Settings - Production
+define('APP_NAME', 'Dune Awakening Guild Tracker');
+define('APP_URL', 'https://houserubi-ka.com');
+define('GUILD_NAME', 'House Rubi-Ka');
+define('SESSION_NAME', 'dune_tracker_session');
+
+// Optional: Guild Verification
+define('REQUIRED_GUILD_ID', null);
+
+// Security Settings
+define('SESSION_LIFETIME', 86400); // 24 hours in seconds
+define('CSRF_TOKEN_NAME', 'csrf_token');
+
+// Admin Users (Discord IDs)
+$ADMIN_USERS = [
+    '305074630744342528', // Charlie Anderson
+];
+
+// Timezone
+date_default_timezone_set('UTC');
+
+// Error Reporting (DISABLED for production)
+error_reporting(0);
+ini_set('display_errors', 0);
+ini_set('log_errors', 1);
+ini_set('error_log', '/home/u442226222/logs/error.log');
+
+// Session Configuration for production (HTTPS)
+ini_set('session.name', SESSION_NAME);
+ini_set('session.gc_maxlifetime', SESSION_LIFETIME);
+ini_set('session.cookie_lifetime', SESSION_LIFETIME);
+ini_set('session.cookie_httponly', 1);
+ini_set('session.cookie_secure', 1); // Enabled for HTTPS
+ini_set('session.use_only_cookies', 1);
+ini_set('session.use_strict_mode', 1);
+ini_set('session.cookie_samesite', 'Lax');
