@@ -27,7 +27,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             try {
                 $db = getDB();
-                $next_number = $db->query("SELECT IFNULL(MAX(run_number), 0) + 1 FROM farming_runs")->fetchColumn();
+                // Use MAX(id) for sequential naming so it works even if run_number column does not exist
+                $next_number = $db->query("SELECT IFNULL(MAX(id), 0) + 1 FROM farming_runs")->fetchColumn();
                 $name = "Run #{$next_number}";
                 
                 $run_id = createFarmingRun($name, $type, '', $user['db_id'], $notes ?: null);
@@ -105,7 +106,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             if ($template) {
                 try {
-                    $next_number = $db->query("SELECT IFNULL(MAX(run_number), 0) + 1 FROM farming_runs")->fetchColumn();
+                    // Use MAX(id) for sequential naming so it works even if run_number column does not exist
+                    $next_number = $db->query("SELECT IFNULL(MAX(id), 0) + 1 FROM farming_runs")->fetchColumn();
                     $name = "Run #{$next_number} - " . $template['name'];
                     
                     $run_id = createFarmingRun($name, $template['run_type'], $template['default_location'] ?? '', 
