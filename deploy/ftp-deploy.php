@@ -5,12 +5,12 @@
  * Usage: php ftp-deploy.php
  */
 
-// Configuration
+// Configuration (env vars override defaults)
 $config = [
-    'ftp_host' => 'ftp://147.93.42.38',
-    'ftp_user' => 'u442226222',
-    'ftp_pass' => 'godpoxwaxpadqUdpy7!',
-    'ftp_path' => '/public_html/tracker/',
+    'ftp_host' => getenv('FTP_HOST') ?: '147.93.42.38', // no protocol
+    'ftp_user' => getenv('FTP_USER') ?: 'u442226222',
+    'ftp_pass' => getenv('FTP_PASS') ?: '', // leave empty to be prompted
+    'ftp_path' => getenv('FTP_PATH') ?: '/domains/houserubi-ka.com/public_html/', // must end with '/'
     'local_path' => __DIR__ . '/../public_html/',
     'exclude' => [
         'config.local.php',
