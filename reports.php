@@ -87,7 +87,7 @@ foreach ($resource_data as $resource_id => $data) {
 $top_contributors_query = "
     SELECT 
         u.id,
-        u.username,
+        COALESCE(u.in_game_name, u.username) as username,
         u.avatar,
         COUNT(DISTINCT c.id) as contribution_count,
         COUNT(DISTINCT DATE(c.date_collected)) as active_days,

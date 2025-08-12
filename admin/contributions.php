@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 // Get original contribution details
                 $stmt = $db->prepare("
-                    SELECT c.*, u.username, r.name as resource_name 
+                    SELECT c.*, COALESCE(u.in_game_name, u.username) as username, r.name as resource_name 
                     FROM contributions c
                     JOIN users u ON c.user_id = u.id
                     JOIN resources r ON c.resource_id = r.id
@@ -66,7 +66,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             
             // Get contribution details before deletion
             $stmt = $db->prepare("
-                SELECT c.*, u.username, r.name as resource_name 
+                SELECT c.*, COALESCE(u.in_game_name, u.username) as username, r.name as resource_name 
                 FROM contributions c
                 JOIN users u ON c.user_id = u.id
                 JOIN resources r ON c.resource_id = r.id
@@ -205,7 +205,7 @@ $sql = "
 $params[] = $per_page;
 $params[] = $offset;
 
-$stmt = $db->prepare($sql);
+    $stmt = $db->prepare($sql);
 $stmt->execute($params);
 $contributions = $stmt->fetchAll();
 
