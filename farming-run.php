@@ -145,6 +145,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
             break;
+
+        case 'persist_distribution':
+            if ($is_leader || $is_admin) {
+                $algo = $_POST['algo'] ?? 'weighted_across_runs';
+                $discounted = isset($_POST['discounted']) && $_POST['discounted'] === '1';
+                $override = isset($_POST['override']) && $_POST['override'] === '1';
+
+                try {
+                    // Compute distribution for this run
+                    $result = computeSpiceToMelangeDistribution([$run_id], $algo, $discounted);
+                    $total_input = (int)($result['total_input'] ?? 0);
+                    $total_output = (int)($result['total_output'] ?? 0);
+                    if ($total_output <= 0) {
+                        $message = 'Nothing to distribute (no spice collected or below threshold).';
+                        $message_type = 'error';
+                        break;
+                    }
+
+                    $db = getDB();
+                    // Find Melange resource id
+                    $melange_id = $db->query("SELECT id FROM resources WHERE LOWER(name) LIKE 'melange%' ORDER BY id LIMIT 1")->fetchColumn();
+                    if (!$melange_id) {
+                        $message = 'Melange resource not found. Add it to resources first.';
+                        $message_type = 'error';
+                        break;
+                    }
+                    // Guard: has distribution already been recorded for this run/resource?
+                    $stmt = $db->prepare("SELECT COUNT(*) FROM run_distributions WHERE run_id = ? AND resource_id = ?");
+                    $stmt->execute([$run_id, $melange_id]);
+                    $existing = (int)$stmt->fetchColumn();
+                    if ($existing > 0 && !$override) {
+                        $message = 'This run already has Melange distributions. Check the override box to replace/add more.';
+                        $message_type = 'error';
+                        break;
+                    }
+
+                    // Choose a spice input id for bookkeeping
+                    $spice_id = $db->query("SELECT id FROM resources WHERE LOWER(name) LIKE '%spice%' AND LOWER(name) NOT LIKE '%coffee%' ORDER BY id LIMIT 1")->fetchColumn();
+                    if (!$spice_id) { $spice_id = $melange_id; }
+
+                    // Record refined output summary
+                    addRefinedOutput($run_id, (int)$spice_id, (int)$melange_id, $total_input, $total_output, $user['db_id']);
+
+                    // Persist per-user distributions
+                    $note = 'Auto-distribution (' . ($algo === 'equal_per_run' ? 'equal-per-run' : 'weighted') . ($discounted ? ', discounted' : '') . ')';
+                    foreach ($result['per_user'] as $uid => $row) {
+                        $qty = (int)($row['output'] ?? 0);
+                        if ($qty > 0) {
+                            distributeRunResources($run_id, (int)$melange_id, (int)$uid, $qty, $user['db_id'], $note);
+                        }
+                    }
+
+                    logActivity($user['db_id'], 'Persisted run distribution', 'Run ID: ' . $run_id . ', Melange: ' . $total_output, $_SERVER['REMOTE_ADDR'] ?? null);
+                    $message = 'Distribution saved successfully (' . number_format($total_output) . ' Melange).';
+                    $message_type = 'success';
+                } catch (Throwable $e) {
+                    error_log('Persist distribution failed: ' . $e->getMessage());
+                    $message = 'Failed to persist distribution.';
+                    $message_type = 'error';
+                }
+            }
+            break;
     }
 }
 
@@ -699,6 +761,18 @@ foreach ($refined_outputs as $output) {
                                 </table>
                             </div>
                             <div class="alert alert-info" id="refine-notes" style="margin-top:0.5rem;"></div>
+                            <?php if ($is_leader || $is_admin): ?>
+                            <form method="POST" style="margin-top:1rem;">
+                                <?php echo csrfField(); ?>
+                                <input type="hidden" name="action" value="persist_distribution">
+                                <input type="hidden" name="algo" id="persist-algo" value="weighted_across_runs">
+                                <input type="hidden" name="discounted" id="persist-discounted" value="0">
+                                <label style="display:inline-flex; align-items:center; gap:0.5rem;">
+                                    <input type="checkbox" name="override" value="1"> Override existing distribution
+                                </label>
+                                <button type="submit" class="btn btn-success">Persist Distribution</button>
+                            </form>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <?php endif; ?>
@@ -846,6 +920,11 @@ foreach ($refined_outputs as $output) {
         })
         .then(r => r.json())
         .then(data => {
+            // set persistence hidden inputs from UI
+            const pa = document.getElementById('persist-algo');
+            const pd = document.getElementById('persist-discounted');
+            if (pa) pa.value = algo;
+            if (pd) pd.value = discounted ? '1' : '0';
             const tbody = document.querySelector('#preview-table tbody');
             tbody.innerHTML = '';
             (data.per_user || []).forEach(row => {
