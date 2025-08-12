@@ -9,9 +9,22 @@ $db = getDB();
 $message = '';
 $message_type = '';
 
-// Helpers
-function getWeekStart(): string { return date('Y-m-d', strtotime('monday this week')); }
-function getWeekEnd(): string { return date('Y-m-d', strtotime('sunday this week 23:59:59')); }
+// Helpers (Hub weeks run Tue → Mon)
+function getWeekStart(): string {
+  $dow = (int)date('N'); // 1=Mon, 2=Tue, ... 7=Sun
+  $dt = new DateTime();
+  if ($dow === 1) { // Monday belongs to previous Tue-start week
+    $dt->modify('last tuesday');
+  } else {
+    $dt->modify('tuesday this week');
+  }
+  return $dt->format('Y-m-d');
+}
+function getWeekEnd(): string {
+  $start = new DateTime(getWeekStart());
+  $start->modify('+6 days 23:59:59'); // through end of Monday
+  return $start->format('Y-m-d H:i:s');
+}
 
 // Find Filters resource id if present
 $filter_resource_id = null;
