@@ -141,6 +141,63 @@ try {
 } catch (Throwable $e) {
     $landsraad_week = [];
 }
+
+// Build weekly series for charts (last 8 ISO weeks)
+function buildWeekKeys($weeksBack = 8) {
+    $keys = [];
+    for ($i = $weeksBack - 1; $i >= 0; $i--) {
+        // ISO year-week as integer (e.g., 202536)
+        $keys[] = (int)date('oW', strtotime("monday -$i week"));
+    }
+    return $keys;
+}
+
+function renderSparkline(array $series, int $width = 240, int $height = 48, string $color = '#4b8bf5') {
+    $n = count($series);
+    if ($n === 0) { $series = [0]; $n = 1; }
+    $max = max(1, max($series));
+    $stepX = $n > 1 ? ($width - 4) / ($n - 1) : 0; // padding 2px
+    $points = [];
+    for ($i = 0; $i < $n; $i++) {
+        $x = 2 + $i * $stepX;
+        $y = 2 + ($height - 4) * (1 - ($series[$i] / $max)); // invert, pad 2px
+        $points[] = round($x, 1) . ',' . round($y, 1);
+    }
+    $poly = implode(' ', $points);
+    $area = '2,' . ($height-2) . ' ' . $poly . ' ' . ($width-2) . ',' . ($height-2);
+    return '<svg width="' . $width . '" height="' . $height . '" viewBox="0 0 ' . $width . ' ' . $height . '" preserveAspectRatio="none" role="img" aria-label="sparkline">'
+         . '<polyline points="' . htmlspecialchars($area) . '" fill="' . htmlspecialchars($color) . '20" stroke="none"></polyline>'
+         . '<polyline points="' . htmlspecialchars($poly) . '" fill="none" stroke="' . htmlspecialchars($color) . '" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>'
+         . '</svg>';
+}
+
+// Prepare combat and landsraad weekly series
+$weekKeys = buildWeekKeys(8);
+// Combat: fetch counts grouped by YEARWEEK for both types
+try {
+    $groundMap = [];
+    $airMap = [];
+    $rows = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, type, COUNT(*) as cnt FROM combat_events WHERE occurred_at >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK) GROUP BY YEARWEEK(occurred_at,1), type")->fetchAll();
+    foreach ($rows as $r) {
+        $key = (int)$r['yw'];
+        if ($r['type'] === 'ground_kill') $groundMap[$key] = (int)$r['cnt'];
+        if ($r['type'] === 'air_kill') $airMap[$key] = (int)$r['cnt'];
+    }
+    $groundSeries = array_map(fn($k) => $groundMap[$k] ?? 0, $weekKeys);
+    $airSeries = array_map(fn($k) => $airMap[$k] ?? 0, $weekKeys);
+} catch (Throwable $e) {
+    $groundSeries = $airSeries = array_fill(0, count($weekKeys), 0);
+}
+
+// Landsraad: weekly sum of points
+try {
+    $lrMap = [];
+    $rows = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, SUM(points) as pts FROM landsraad_points WHERE occurred_at >= DATE_SUB(CURDATE(), INTERVAL 8 WEEK) GROUP BY YEARWEEK(occurred_at,1)")->fetchAll();
+    foreach ($rows as $r) { $lrMap[(int)$r['yw']] = (int)$r['pts']; }
+    $landsraadSeries = array_map(fn($k) => $lrMap[$k] ?? 0, $weekKeys);
+} catch (Throwable $e) {
+    $landsraadSeries = array_fill(0, count($weekKeys), 0);
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -533,6 +590,16 @@ try {
                         <h3 class="section-title">⚔️ Combat (This Week)</h3>
                         <a href="/combat.php" class="btn btn-secondary btn-sm">My Combat</a>
                     </div>
+                    <div style="margin:0.5rem 0 1rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+                            <span style="color:var(--text-secondary); font-size:0.85rem;">Ground (8 weeks)</span>
+                            <div><?php echo renderSparkline($groundSeries, 220, 40, '#4CAF50'); ?></div>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-top:0.5rem;">
+                            <span style="color:var(--text-secondary); font-size:0.85rem;">Air (8 weeks)</span>
+                            <div><?php echo renderSparkline($airSeries, 220, 40, '#F44336'); ?></div>
+                        </div>
+                    </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                         <div>
                             <h4 style="font-size:0.9rem; color:var(--text-secondary);">Ground</h4>
@@ -570,6 +637,12 @@ try {
                     <div class="section-header">
                         <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
                         <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
+                    </div>
+                    <div style="margin:0.5rem 0 1rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+                            <span style="color:var(--text-secondary); font-size:0.85rem;">Points (8 weeks)</span>
+                            <div><?php echo renderSparkline($landsraadSeries, 220, 40, '#2196F3'); ?></div>
+                        </div>
                     </div>
                     <?php if (empty($landsraad_week)): ?>
                         <p class="empty-state" style="font-size:0.85rem;">No points logged</p>
