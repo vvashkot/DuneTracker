@@ -46,15 +46,13 @@ foreach ($files as $file) {
     if ($ver <= $current) continue;
     $sql = file_get_contents($file);
     if ($sql === false) continue;
-    $db->beginTransaction();
     try {
+        // Avoid explicit transactions; some DDL auto-commits in MySQL
         $db->exec($sql);
-        $db->commit();
         echo "Applied: $base\n";
         $applied++;
         $current = $ver;
     } catch (Throwable $e) {
-        $db->rollBack();
         http_response_code(500);
         echo 'Failed at ' . $base . ': ' . $e->getMessage();
         exit;
