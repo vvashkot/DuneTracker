@@ -69,6 +69,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $message = 'Circuit roster updated';
                 $message_type = 'success';
                 break;
+
+            case 'assign_circuit':
+                if (!isAdmin()) { throw new Exception('Forbidden'); }
+                $week_start = getWeekStart();
+                $circuit = (int)($_POST['circuit_number'] ?? 0);
+                $assign_user_id = (int)($_POST['user_id'] ?? 0);
+                if ($circuit < 1 || $circuit > 8 || $assign_user_id <= 0) { throw new Exception('Invalid input'); }
+                // Free the slot for this week
+                $stmt = $db->prepare("DELETE FROM circuit_roster WHERE week_start = ? AND circuit_number = ?");
+                $stmt->execute([$week_start, $circuit]);
+                // Upsert user row and set circuit number
+                $stmt = $db->prepare("INSERT INTO circuit_roster (user_id, week_start, circuit_number) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE circuit_number = VALUES(circuit_number)");
+                $stmt->execute([$assign_user_id, $week_start, $circuit]);
+                $message = 'Circuit assigned';
+                $message_type = 'success';
+                break;
+
+            case 'clear_circuit':
+                if (!isAdmin()) { throw new Exception('Forbidden'); }
+                $week_start = getWeekStart();
+                $circuit = (int)($_POST['circuit_number'] ?? 0);
+                if ($circuit >= 1 && $circuit <= 8) {
+                    $stmt = $db->prepare("DELETE FROM circuit_roster WHERE week_start = ? AND circuit_number = ?");
+                    $stmt->execute([$week_start, $circuit]);
+                    $message = 'Circuit cleared';
+                    $message_type = 'success';
+                }
+                break;
         }
     } catch (Throwable $e) {
         $message = 'Operation failed';
@@ -96,6 +124,12 @@ $my_chores = $my_chores->fetchAll();
 $roster_stmt = $db->prepare("SELECT c.*, COALESCE(u.in_game_name, u.username) as username FROM circuit_roster c JOIN users u ON c.user_id=u.id WHERE week_start=? ORDER BY username");
 $roster_stmt->execute([$week_start]);
 $roster_all = $roster_stmt->fetchAll();
+$circuit_map = [];
+foreach ($roster_all as $r) {
+  if (!empty($r['circuit_number'])) {
+    $circuit_map[(int)$r['circuit_number']] = $r;
+  }
+}
 
 ?>
 <!DOCTYPE html>
@@ -183,27 +217,51 @@ $roster_all = $roster_stmt->fetchAll();
 
     <div class="card" style="margin-top:1.5rem;">
       <h3>Circuit Roster (This Week)</h3>
-      <form method="POST" class="form-inline" style="margin-bottom:1rem;">
+      <p style="color:var(--text-secondary); font-size:0.9rem;">Circuits are numbered 1–8. Only admins can assign circuits to users.</p>
+      <div class="table-responsive" style="margin-bottom:1rem;">
+        <table class="data-table"><thead><tr><th>Circuit</th><th>Assigned User</th><th>Notes</th><?php if (isAdmin()): ?><th>Actions</th><?php endif; ?></tr></thead><tbody>
+          <?php for ($i=1; $i<=8; $i++): $row = $circuit_map[$i] ?? null; ?>
+            <tr>
+              <td>#<?php echo $i; ?></td>
+              <td><?php echo $row ? htmlspecialchars($row['username']) : '<span class="empty-state">Unassigned</span>'; ?></td>
+              <td><?php echo $row ? htmlspecialchars($row['notes'] ?? '-') : '-'; ?></td>
+              <?php if (isAdmin()): ?>
+              <td>
+                <form method="POST" class="form-inline" style="gap:0.5rem;">
+                  <?php echo csrfField(); ?>
+                  <input type="hidden" name="action" value="assign_circuit">
+                  <input type="hidden" name="circuit_number" value="<?php echo $i; ?>">
+                  <select name="user_id" class="form-control" style="min-width:200px;">
+                    <option value="">Select user…</option>
+                    <?php foreach (getAllGuildMembers() as $m): ?>
+                      <option value="<?php echo $m['id']; ?>"><?php echo htmlspecialchars($m['in_game_name'] ?: $m['username']); ?></option>
+                    <?php endforeach; ?>
+                  </select>
+                  <button class="btn btn-primary btn-sm" type="submit">Assign</button>
+                </form>
+                <?php if ($row): ?>
+                  <form method="POST" style="display:inline-block; margin-top:0.25rem;">
+                    <?php echo csrfField(); ?>
+                    <input type="hidden" name="action" value="clear_circuit">
+                    <input type="hidden" name="circuit_number" value="<?php echo $i; ?>">
+                    <button class="btn btn-secondary btn-sm" type="submit">Clear</button>
+                  </form>
+                <?php endif; ?>
+              </td>
+              <?php endif; ?>
+            </tr>
+          <?php endfor; ?>
+        </tbody></table>
+      </div>
+
+      <!-- Users can still save their own role/notes (no circuit assignment) -->
+      <form method="POST" class="form-inline" style="margin-bottom:0.5rem;">
         <?php echo csrfField(); ?>
         <input type="hidden" name="action" value="save_roster_self">
         <input type="text" name="role" class="form-control" placeholder="Your role (optional)">
         <input type="text" name="notes" class="form-control" placeholder="Notes (optional)">
         <button type="submit" class="btn btn-primary">Save My Entry</button>
       </form>
-      <div class="table-responsive">
-        <table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Notes</th></tr></thead><tbody>
-          <?php foreach ($roster_all as $r): ?>
-            <tr>
-              <td><?php echo htmlspecialchars($r['username']); ?></td>
-              <td><?php echo htmlspecialchars($r['role'] ?? '-'); ?></td>
-              <td><?php echo htmlspecialchars($r['notes'] ?? '-'); ?></td>
-            </tr>
-          <?php endforeach; ?>
-          <?php if (empty($roster_all)): ?>
-            <tr><td colspan="3" class="empty-state">No entries yet.</td></tr>
-          <?php endif; ?>
-        </tbody></table>
-      </div>
     </div>
   </div>
 </body>
