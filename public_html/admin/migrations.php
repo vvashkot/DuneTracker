@@ -45,14 +45,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if ($ver <= $current) continue;
             $sql = file_get_contents($file);
             if ($sql === false) continue;
-            $db->beginTransaction();
             try {
+                // Some DDL causes implicit commits in MySQL; avoid explicit transactions
                 $db->exec($sql);
-                $db->commit();
                 $applied[] = $base;
                 $current = $ver;
             } catch (Throwable $e) {
-                $db->rollBack();
                 $message = 'Migration failed at ' . $base . ': ' . $e->getMessage();
                 $message_type = 'error';
                 break;
