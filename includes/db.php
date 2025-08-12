@@ -990,7 +990,7 @@ function getTopContributors($period = 'all', $limit = 10) {
     $sql = "
         SELECT 
             u.id,
-            u.username,
+            COALESCE(u.in_game_name, u.username) as username,
             u.avatar,
             u.discord_id,
             COUNT(DISTINCT c.id) as contribution_count,
