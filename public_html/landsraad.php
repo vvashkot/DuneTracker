@@ -31,6 +31,22 @@ $my_total = $db->prepare("SELECT COALESCE(SUM(points),0) FROM landsraad_points W
 $my_total->execute([$user['db_id'], $since]);
 $my_points = (int)$my_total->fetchColumn();
 
+// Leaderboard (this week)
+$week_start = date('Y-m-d', strtotime('monday this week'));
+$week_end = date('Y-m-d 23:59:59', strtotime('sunday this week'));
+$leaders_week_stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, SUM(lp.points) as pts FROM landsraad_points lp JOIN users u ON lp.user_id=u.id WHERE lp.occurred_at BETWEEN ? AND ? GROUP BY lp.user_id ORDER BY pts DESC LIMIT 20");
+$leaders_week_stmt->execute([$week_start, $week_end]);
+$leaders_week = $leaders_week_stmt->fetchAll();
+
+// Leaderboard (since date)
+$leaders_since_stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, SUM(lp.points) as pts FROM landsraad_points lp JOIN users u ON lp.user_id=u.id WHERE lp.occurred_at >= ? GROUP BY lp.user_id ORDER BY pts DESC LIMIT 20");
+$leaders_since_stmt->execute([$since]);
+$leaders_since = $leaders_since_stmt->fetchAll();
+
+// Weekly totals (last 12 weeks)
+$weekly_stmt = $db->query("SELECT YEARWEEK(occurred_at, 1) as yw, DATE_FORMAT(STR_TO_DATE(CONCAT(YEARWEEK(occurred_at, 1),' Monday'), '%X%V %W'), '%Y-%m-%d') as week_start, SUM(points) as total_pts FROM landsraad_points GROUP BY YEARWEEK(occurred_at, 1) ORDER BY yw DESC LIMIT 12");
+$weekly_totals = $weekly_stmt->fetchAll();
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -76,8 +92,60 @@ $my_points = (int)$my_total->fetchColumn();
       </form>
     </div>
 
-    <div class="card">
+    <div class="card" style="margin-bottom:1.5rem;">
       <h3>My Total Since <?php echo htmlspecialchars($since); ?>: <?php echo number_format($my_points); ?></h3>
+    </div>
+
+    <div class="card" style="margin-bottom:1.5rem;">
+      <h3>Landsraad Leaderboard (This Week)</h3>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>Rank</th><th>User</th><th>Points</th></tr></thead><tbody>
+          <?php foreach ($leaders_week as $i => $row): ?>
+            <tr>
+              <td><?php echo $i+1; ?></td>
+              <td><?php echo htmlspecialchars($row['username']); ?></td>
+              <td class="quantity"><?php echo number_format($row['pts']); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($leaders_week)): ?><tr><td colspan="3" class="empty-state">No points logged this week.</td></tr><?php endif; ?>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1.5rem;">
+      <h3>Landsraad Leaderboard (Since <?php echo htmlspecialchars($since); ?>)</h3>
+      <form method="GET" class="form-inline" style="margin-bottom:0.75rem;">
+        <label for="since" class="form-label" style="margin:0 0.5rem 0 0;">Since</label>
+        <input type="date" id="since" name="since" class="form-control" value="<?php echo htmlspecialchars($since); ?>">
+        <button class="btn btn-secondary" type="submit">Update</button>
+      </form>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>Rank</th><th>User</th><th>Points</th></tr></thead><tbody>
+          <?php foreach ($leaders_since as $i => $row): ?>
+            <tr>
+              <td><?php echo $i+1; ?></td>
+              <td><?php echo htmlspecialchars($row['username']); ?></td>
+              <td class="quantity"><?php echo number_format($row['pts']); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($leaders_since)): ?><tr><td colspan="3" class="empty-state">No points in this period.</td></tr><?php endif; ?>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Weekly Totals (Last 12 Weeks)</h3>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>Week Starting</th><th>Total Points</th></tr></thead><tbody>
+          <?php foreach ($weekly_totals as $row): ?>
+            <tr>
+              <td><?php echo htmlspecialchars($row['week_start'] ?: $row['yw']); ?></td>
+              <td class="quantity"><?php echo number_format($row['total_pts']); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($weekly_totals)): ?><tr><td colspan="2" class="empty-state">No weekly data.</td></tr><?php endif; ?>
+        </tbody></table>
+      </div>
     </div>
   </div>
 </body>
