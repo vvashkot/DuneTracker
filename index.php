@@ -115,6 +115,32 @@ while ($row = $stmt->fetch()) {
         $tax_rate = floatval($row['setting_value']) * 100;
     }
 }
+
+// Weekly windows for leaderboards
+$week_start = date('Y-m-d', strtotime('monday this week'));
+$week_end = date('Y-m-d 23:59:59', strtotime('sunday this week'));
+
+// Combat weekly top (ground/air)
+try {
+    $stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='ground_kill' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 5");
+    $stmt->execute([$week_start, $week_end]);
+    $top_ground_week = $stmt->fetchAll();
+    
+    $stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='air_kill' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 5");
+    $stmt->execute([$week_start, $week_end]);
+    $top_air_week = $stmt->fetchAll();
+} catch (Throwable $e) {
+    $top_ground_week = $top_air_week = [];
+}
+
+// Landsraad weekly top
+try {
+    $stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, SUM(lp.points) as pts FROM landsraad_points lp JOIN users u ON lp.user_id=u.id WHERE lp.occurred_at BETWEEN ? AND ? GROUP BY lp.user_id ORDER BY pts DESC LIMIT 5");
+    $stmt->execute([$week_start, $week_end]);
+    $landsraad_week = $stmt->fetchAll();
+} catch (Throwable $e) {
+    $landsraad_week = [];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -496,6 +522,63 @@ while ($row = $stmt->fetch()) {
                                     <span><?php echo htmlspecialchars($contributor['username']); ?></span>
                                 </div>
                                 <span class="leaderboard-value"><?php echo number_format($contributor['total_contributed']); ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
+                </div>
+
+                <!-- Combat Leaderboards (Weekly) -->
+                <div class="leaderboard-card">
+                    <div class="section-header">
+                        <h3 class="section-title">⚔️ Combat (This Week)</h3>
+                        <a href="/combat.php" class="btn btn-secondary btn-sm">My Combat</a>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                        <div>
+                            <h4 style="font-size:0.9rem; color:var(--text-secondary);">Ground</h4>
+                            <?php if (empty($top_ground_week)): ?>
+                                <p class="empty-state" style="font-size:0.85rem;">No data</p>
+                            <?php else: ?>
+                                <?php foreach ($top_ground_week as $i => $row): ?>
+                                    <div class="leaderboard-item" style="margin-bottom:0.35rem;">
+                                        <span class="leaderboard-rank"><?php echo $i+1; ?></span>
+                                        <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
+                                        <span class="leaderboard-value"><?php echo (int)$row['cnt']; ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                        <div>
+                            <h4 style="font-size:0.9rem; color:var(--text-secondary);">Air</h4>
+                            <?php if (empty($top_air_week)): ?>
+                                <p class="empty-state" style="font-size:0.85rem;">No data</p>
+                            <?php else: ?>
+                                <?php foreach ($top_air_week as $i => $row): ?>
+                                    <div class="leaderboard-item" style="margin-bottom:0.35rem;">
+                                        <span class="leaderboard-rank"><?php echo $i+1; ?></span>
+                                        <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
+                                        <span class="leaderboard-value"><?php echo (int)$row['cnt']; ?></span>
+                                    </div>
+                                <?php endforeach; ?>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Landsraad Weekly -->
+                <div class="leaderboard-card">
+                    <div class="section-header">
+                        <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
+                        <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
+                    </div>
+                    <?php if (empty($landsraad_week)): ?>
+                        <p class="empty-state" style="font-size:0.85rem;">No points logged</p>
+                    <?php else: ?>
+                        <?php foreach ($landsraad_week as $i => $row): ?>
+                            <div class="leaderboard-item">
+                                <span class="leaderboard-rank <?php echo $i===0?'gold':($i===1?'silver':($i===2?'bronze':'')); ?>"><?php echo $i+1; ?></span>
+                                <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
+                                <span class="leaderboard-value"><?php echo number_format($row['pts']); ?></span>
                             </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
