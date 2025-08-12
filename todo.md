@@ -45,3 +45,36 @@ Distribution logs
  Final upload to GoDaddy /public_html/
  Enable HTTPS if needed
  Final production config (client secrets, DB creds)
+
+🏠 Hub Chores (High Priority)
+- [ ] Weekly hub registrations (track who is registered this week)
+- [ ] Filters contributed per player vs weekly requirement
+- [ ] Move-out / Move-in assistance logs
+- [ ] Circuit roster (weekly)
+- [ ] Admin page to manage hub chores and quotas
+
+🚜 Group Farming (High Priority)
+- [ ] Persist Spice→Melange distributions to `run_distributions`
+- [ ] Add time participation tracking (`left_at` or sessions) for weighted-by-time shares
+- [ ] Multi-run distribution (select multiple runs in preview)
+- [ ] Weekly/daily run stats (participants, totals, outputs)
+
+📦 Other Contributions (Medium)
+- [ ] Report: other hub resources contributed by players (filters, supplies)
+- [ ] Top resource contributors (date range)
+
+🏛️ Landsraad (Medium)
+- [ ] Table for Landsraad points per player
+- [ ] Admin page to add/view points
+- [ ] Leaderboards and weekly totals
+
+⚔️ Combat Statistics (Medium)
+- [ ] Table for combat events (ground kills, air kills, weapon)
+- [ ] Admin page to add/view combat logs
+- [ ] Top weapons/players, daily/weekly summaries
+
+🗄️ Database Migrations
+- [ ] 019_add_run_participant_left_at.sql
+- [ ] 020_add_hub_tables.sql
+- [ ] 021_add_landsraad_points.sql
+- [ ] 022_add_combat_events.sql
