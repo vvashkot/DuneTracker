@@ -89,11 +89,47 @@ function callOpenAIExtract(string $text): array {
     return $parsed;
 }
 
+function normalizeResourceName(string $name): string {
+    $n = strtolower(trim($name));
+    $n = preg_replace('/[^a-z0-9]+/i', '', $n);
+    // Common aliases/abbreviations
+    $aliases = [
+        // Titanium
+        '/^(ti|tit|tita|titan|titanium|t)$/' => 'titanium',
+        // Stravidium
+        '/^(strav|stra|stravid|stravidium|s)$/' => 'stravidium',
+        // Spice
+        '/^(sp|spi|spice)$/' => 'spice',
+        // Melange
+        '/^(mel|melan|melange)$/' => 'melange',
+        // Plastanium
+        '/^(plas|plast|plastan|plastanium|pla)$/' => 'plastanium',
+        // Filters
+        '/^(filter|filters|fil)$/' => 'filter',
+    ];
+    foreach ($aliases as $pattern => $target) {
+        if (preg_match($pattern, $n)) return $target;
+    }
+    return $name;
+}
+
 function findResourceIdByName(string $name) {
     $db = getDB();
-    $nameLike = '%' . $name . '%';
-    $stmt = $db->prepare("SELECT id FROM resources WHERE name LIKE ? ORDER BY CASE WHEN name = ? THEN 0 ELSE 1 END, CHAR_LENGTH(name) ASC LIMIT 1");
-    $stmt->execute([$nameLike, $name]);
+    $canon = normalizeResourceName($name);
+    $lc = strtolower($canon);
+    $starts = $lc . '%';
+    $contains = '%' . $lc . '%';
+    $stmt = $db->prepare(
+        "SELECT id FROM resources 
+         WHERE LOWER(name) = ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?
+         ORDER BY 
+           CASE WHEN LOWER(name) = ? THEN 0 
+                WHEN LOWER(name) LIKE ? THEN 1 
+                ELSE 2 END,
+           CHAR_LENGTH(name) ASC
+         LIMIT 1"
+    );
+    $stmt->execute([$lc, $starts, $contains, $lc, $starts]);
     return $stmt->fetchColumn() ?: null;
 }
 
