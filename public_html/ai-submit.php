@@ -9,15 +9,16 @@ $db = getDB();
 $message = '';
 $message_type = '';
 $parsed = null;
+$items = [];
+$resolvedParticipants = [];
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
     if (!$apiKey) throw new Exception('Missing OPENAI_API_KEY');
     $url = 'https://api.openai.com/v1/chat/completions';
-    $system = 'You extract structured data for a guild resource tracker. '
-            . 'Return ONLY compact JSON with keys: action, resource_name, quantity, notes, target. '
-            . "action must be one of: 'contribution' (default). target can be 'personal' or 'group' or 'run'. If 'run', include run_hint in notes. "
-            . 'Infer integers for quantity. Resource names should be short canonical names found in the text.';
+    $system = 'Extract structured data for a guild resource tracker. '
+            . 'Return ONLY JSON with keys: items (array of {resource_name, quantity, notes?}), participants (array of strings), target (personal|group|run), split (equal|none), run_hint?. '
+            . 'Infer integers; keep resource_name concise (matchable). If names in parentheses like (Cap/Kes/Vva) are present, output participants split by /.';
     $userMsg = 'Text: ' . $text . "\nRespond with JSON only.";
     $payload = [
         'model' => 'gpt-4o-mini',
@@ -94,6 +95,32 @@ function findResourceIdByName(string $name) {
     return $stmt->fetchColumn() ?: null;
 }
 
+function resolveParticipantNames(array $names): array {
+    $db = getDB();
+    $resolved = [];
+    foreach ($names as $nRaw) {
+        $n = trim($nRaw);
+        if ($n === '') continue;
+        // Try exact in_game_name, then username, then LIKE
+        $stmt = $db->prepare("SELECT id, COALESCE(in_game_name, username) as name FROM users WHERE in_game_name = ? OR username = ? LIMIT 1");
+        $stmt->execute([$n, $n]);
+        $row = $stmt->fetch();
+        if (!$row) {
+            $like = '%' . $n . '%';
+            $stmt = $db->prepare("SELECT id, COALESCE(in_game_name, username) as name FROM users WHERE in_game_name LIKE ? OR username LIKE ? ORDER BY LENGTH(name) ASC LIMIT 1");
+            $stmt->execute([$like, $like]);
+            $row = $stmt->fetch();
+        }
+        if ($row) {
+            $resolved[] = ['id' => (int)$row['id'], 'name' => $row['name']];
+        } else {
+            // keep unresolved placeholder
+            $resolved[] = ['id' => null, 'name' => $n];
+        }
+    }
+    return $resolved;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     verifyPOST();
     if ($_POST['action'] === 'analyze') {
@@ -104,6 +131,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         } else {
             try {
                 $parsed = callOpenAIExtract($freeform);
+                $items = isset($parsed['items']) && is_array($parsed['items']) ? $parsed['items'] : [];
+                if (empty($items)) {
+                    // Backward compat: single item keys
+                    $single = [
+                        'resource_name' => (string)($parsed['resource_name'] ?? ''),
+                        'quantity' => (int)($parsed['quantity'] ?? 0),
+                        'notes' => (string)($parsed['notes'] ?? '')
+                    ];
+                    if (!empty($single['resource_name']) && $single['quantity'] > 0) $items = [$single];
+                }
+                $names = [];
+                if (!empty($parsed['participants']) && is_array($parsed['participants'])) {
+                    $names = $parsed['participants'];
+                }
+                $resolvedParticipants = resolveParticipantNames($names);
             } catch (Throwable $e) {
                 error_log('AI analyze error: ' . $e->getMessage());
                 $message = 'AI failed to analyze input.';
@@ -136,6 +178,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $message = 'Failed to save submission.';
                     $message_type = 'error';
                 }
+            }
+        }
+    } elseif ($_POST['action'] === 'save_multi') {
+        // Save multiple items, possibly split among participants
+        $rawItems = json_decode($_POST['items_json'] ?? '[]', true) ?: [];
+        $rawParticipants = json_decode($_POST['participants_json'] ?? '[]', true) ?: [];
+        if (empty($rawItems)) {
+            $message = 'Nothing to save.';
+            $message_type = 'error';
+        } else {
+            // Resolve participants again server-side
+            $participants = resolveParticipantNames($rawParticipants);
+            $validUsers = array_values(array_filter($participants, fn($p) => !empty($p['id'])));
+            $numUsers = count($validUsers);
+            try {
+                foreach ($rawItems as $it) {
+                    $rname = trim((string)($it['resource_name'] ?? ''));
+                    $qty = (int)($it['quantity'] ?? 0);
+                    $notes = trim((string)($it['notes'] ?? ''));
+                    if ($rname === '' || $qty <= 0) continue;
+                    $rid = findResourceIdByName($rname);
+                    if (!$rid) continue;
+                    if ($numUsers > 0) {
+                        $base = intdiv($qty, $numUsers);
+                        $rem = $qty - ($base * $numUsers);
+                        foreach ($validUsers as $idx => $p) {
+                            $q = $base + ($idx < $rem ? 1 : 0);
+                            if ($q > 0) {
+                                addContribution($p['id'], (int)$rid, $q, $notes ? ($notes . ' (AI split)') : 'AI split');
+                            }
+                        }
+                    } else {
+                        addContribution($user['db_id'], (int)$rid, $qty, $notes ?: null);
+                    }
+                }
+                $message = 'Submission saved.';
+                $message_type = 'success';
+            } catch (Throwable $e) {
+                error_log('AI save_multi failed: ' . $e->getMessage());
+                $message = 'Failed to save.';
+                $message_type = 'error';
             }
         }
     }
@@ -184,38 +267,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     </div>
 
     <?php if ($parsed): 
-      $resource_name = trim((string)($parsed['resource_name'] ?? ''));
-      $quantity = (int)($parsed['quantity'] ?? 0);
-      $notes = trim((string)($parsed['notes'] ?? ''));
       $target = (string)($parsed['target'] ?? 'personal');
+      $split = (string)($parsed['split'] ?? 'equal');
     ?>
       <div class="card" style="margin-top:1rem;">
         <h3>Review & Confirm</h3>
-        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
-          <div>
-            <label>Resource</label>
-            <input type="text" class="form-control" value="<?php echo htmlspecialchars($resource_name); ?>" disabled>
-          </div>
-          <div>
-            <label>Quantity</label>
-            <input type="number" class="form-control" value="<?php echo htmlspecialchars((string)$quantity); ?>" disabled>
-          </div>
-          <div>
-            <label>Target</label>
-            <input type="text" class="form-control" value="<?php echo htmlspecialchars($target ?: 'personal'); ?>" disabled>
-          </div>
-          <div>
-            <label>Notes</label>
-            <input type="text" class="form-control" value="<?php echo htmlspecialchars($notes); ?>" disabled>
-          </div>
+        <div class="table-responsive">
+          <table class="data-table"><thead><tr><th>Resource</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>
+            <?php foreach ($items as $it): ?>
+              <tr>
+                <td><?php echo htmlspecialchars((string)($it['resource_name'] ?? '')); ?></td>
+                <td class="quantity"><?php echo number_format((int)($it['quantity'] ?? 0)); ?></td>
+                <td><?php echo htmlspecialchars((string)($it['notes'] ?? '')); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody></table>
         </div>
+        <?php if (!empty($resolvedParticipants)): ?>
+          <div style="margin:0.75rem 0; color:var(--text-secondary);">
+            Participants: <?php echo htmlspecialchars(implode(', ', array_map(fn($p) => $p['name'], $resolvedParticipants))); ?>
+            <?php if ($split === 'equal'): ?> — split equally<?php endif; ?>
+          </div>
+        <?php endif; ?>
         <form method="POST" style="margin-top:1rem;">
           <?php echo csrfField(); ?>
-          <input type="hidden" name="action" value="save">
-          <input type="hidden" name="resource_name" value="<?php echo htmlspecialchars($resource_name); ?>">
-          <input type="hidden" name="quantity" value="<?php echo (int)$quantity; ?>">
-          <input type="hidden" name="target" value="<?php echo htmlspecialchars($target ?: 'personal'); ?>">
-          <input type="hidden" name="notes" value="<?php echo htmlspecialchars($notes); ?>">
+          <input type="hidden" name="action" value="save_multi">
+          <input type="hidden" name="items_json" value='<?php echo json_encode($items); ?>'>
+          <input type="hidden" name="participants_json" value='<?php echo json_encode(array_map(fn($p)=>$p['name'], $resolvedParticipants)); ?>'>
           <button class="btn btn-success" type="submit">Confirm & Save</button>
         </form>
       </div>
