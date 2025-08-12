@@ -320,6 +320,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <button class="tab-button" onclick="switchTab('scheduled')">Scheduled Runs</button>
             <button class="tab-button" onclick="switchTab('templates')">Templates</button>
             <button class="tab-button" onclick="switchTab('create')">Create New</button>
+            <?php if (isAdmin()): ?>
+            <button class="tab-button" onclick="switchTab('multi')">Multi-Run Distribute</button>
+            <?php endif; ?>
         </div>
 
         <!-- Active Runs Tab -->
@@ -538,6 +541,84 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 <?php endif; ?>
             </div>
         </div>
+
+        <?php if (isAdmin()): ?>
+        <!-- Multi-Run Distribute Tab -->
+        <div id="multi-tab" class="tab-content">
+            <div class="runs-grid">
+                <div class="create-form">
+                    <h3>Refine & Distribute Across Multiple Runs</h3>
+                    <form onsubmit="return false;" class="form-inline" style="flex-wrap:wrap; gap:0.75rem;">
+                        <div class="form-group" style="min-width:280px;">
+                            <label>Select Runs</label>
+                            <select id="multi-run-select" class="form-control" multiple size="6" style="min-width:280px;">
+                                <?php 
+                                $allActive = getActiveFarmingRuns();
+                                foreach ($allActive as $r): ?>
+                                    <option value="<?php echo $r['id']; ?>"><?php echo htmlspecialchars($r['name']); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                            <small class="form-help">Hold Ctrl/Cmd to select multiple</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Algorithm</label>
+                            <select id="multi-algo" class="form-control">
+                                <option value="weighted_across_runs">Weighted across runs</option>
+                                <option value="equal_per_run">Equal per run</option>
+                            </select>
+                        </div>
+                        <label style="display:inline-flex; align-items:center; gap:0.5rem;">
+                            <input type="checkbox" id="multi-discounted"> Discounted refinery
+                        </label>
+                        <button class="btn btn-primary" onclick="previewMulti()">Preview</button>
+                    </form>
+                </div>
+
+                <div id="multi-preview" class="card" style="display:none;">
+                    <h4>Preview</h4>
+                    <div class="table-responsive">
+                        <table class="data-table" id="multi-preview-table">
+                            <thead>
+                                <tr>
+                                    <th>User</th>
+                                    <th>Input (Spice)</th>
+                                    <th>Share</th>
+                                    <th>Output (Melange)</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                            <tfoot>
+                                <tr>
+                                    <th>Total</th>
+                                    <th id="multi-total-input">0</th>
+                                    <th></th>
+                                    <th id="multi-total-output">0</th>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    <div class="alert alert-info" id="multi-note" style="margin-top:0.5rem;"></div>
+
+                    <form method="POST" style="margin-top:1rem;">
+                        <?php echo csrfField(); ?>
+                        <input type="hidden" name="action" value="persist_distribution">
+                        <input type="hidden" name="algo" id="multi-persist-algo" value="weighted_across_runs">
+                        <input type="hidden" name="discounted" id="multi-persist-discounted" value="0">
+                        <label style="display:inline-flex; align-items:center; gap:0.5rem;">
+                            <input type="checkbox" name="override" value="1"> Override existing distribution
+                        </label>
+                        <span style="margin-left:1rem; color:var(--text-secondary); font-size:0.9rem;">Persist to which run?</span>
+                        <select name="persist_run_id" class="form-control" style="min-width:200px;">
+                            <?php foreach ($allActive as $r): ?>
+                                <option value="<?php echo $r['id']; ?>"><?php echo htmlspecialchars($r['name']); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <button type="submit" class="btn btn-success">Persist Distribution</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        <?php endif; ?>
     </div>
 
     <script>
@@ -553,6 +634,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             // Show selected tab
             document.getElementById(tabName + '-tab').classList.add('active');
             event.target.classList.add('active');
+        }
+
+        // Multi-run preview
+        function previewMulti() {
+            const select = document.getElementById('multi-run-select');
+            const runIds = Array.from(select.selectedOptions).map(o => o.value).join(',');
+            const algo = document.getElementById('multi-algo').value;
+            const discounted = document.getElementById('multi-discounted').checked ? 1 : 0;
+            if (!runIds) { alert('Select at least one run.'); return; }
+            fetch(`/multi-run-refine-preview.php?run_ids=${encodeURIComponent(runIds)}&algo=${encodeURIComponent(algo)}&discounted=${discounted}`, { credentials: 'same-origin' })
+              .then(r => r.json())
+              .then(data => {
+                if (data.error) { alert(data.error); return; }
+                const tbody = document.querySelector('#multi-preview-table tbody');
+                tbody.innerHTML = '';
+                (data.per_user || []).forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${row.username}</td>
+                                    <td class="quantity">${Number(row.input).toLocaleString()}</td>
+                                    <td>${(row.share * 100).toFixed(1)}%</td>
+                                    <td class="quantity">${Number(row.output).toLocaleString()}</td>`;
+                    tbody.appendChild(tr);
+                });
+                document.getElementById('multi-total-input').textContent = Number(data.total_input || 0).toLocaleString();
+                document.getElementById('multi-total-output').textContent = Number(data.total_output || 0).toLocaleString();
+                document.getElementById('multi-note').textContent = data.note || '';
+                document.getElementById('multi-preview').style.display = 'block';
+                // set hidden inputs for persist
+                document.getElementById('multi-persist-algo').value = algo;
+                document.getElementById('multi-persist-discounted').value = discounted ? '1' : '0';
+              })
+              .catch(() => alert('Failed to preview'));
         }
     </script>
 </body>
