@@ -103,7 +103,7 @@ fputcsv($output, ['Rank', 'Username', 'Total Contributed', 'Contribution Count',
 
 $top_contributors = $db->prepare("
     SELECT 
-        u.username,
+        COALESCE(u.in_game_name, u.username) as username,
         COUNT(DISTINCT c.id) as contribution_count,
         COUNT(DISTINCT DATE(c.date_collected)) as active_days,
         SUM(c.quantity) as total_contributed,
@@ -212,7 +212,7 @@ if (isAdmin()) {
     $all_contributions = $db->prepare("
         SELECT 
             c.date_collected,
-            u.username,
+            COALESCE(u.in_game_name, u.username) as username,
             r.name as resource_name,
             r.category,
             c.quantity,
