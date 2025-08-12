@@ -16,6 +16,13 @@ RewriteRule ^(.*)$ https://%{HTTP_HOST}/$1 [R=301,L]
     Header set Referrer-Policy "strict-origin-when-cross-origin"
 </IfModule>
 
+# Optional: make OPENAI_API_KEY available to PHP via Apache env (Host-dependent)
+# DO NOT commit your real key here. Prefer using `public_html/config.local.php`.
+# If your host supports SetEnv and you cannot use config.local.php, you may uncomment:
+# <IfModule mod_env.c>
+#     SetEnv OPENAI_API_KEY "YOUR_OPENAI_KEY_HERE"
+# </IfModule>
+
 # Prevent directory browsing
 Options -Indexes
 
