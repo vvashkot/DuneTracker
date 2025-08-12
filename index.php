@@ -599,6 +599,16 @@ try {
                             <span style="color:var(--text-secondary); font-size:0.85rem;">Air (8 weeks)</span>
                             <div><?php echo renderSparkline($airSeries, 220, 40, '#F44336'); ?></div>
                         </div>
+                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
+                            <span style="display:inline-flex; align-items:center; gap:6px;">
+                                <span style="display:inline-block; width:10px; height:10px; background:#4CAF50; border-radius:2px;"></span>
+                                Ground
+                            </span>
+                            <span style="display:inline-flex; align-items:center; gap:6px;">
+                                <span style="display:inline-block; width:10px; height:10px; background:#F44336; border-radius:2px;"></span>
+                                Air
+                            </span>
+                        </div>
                     </div>
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
                         <div>
@@ -642,6 +652,12 @@ try {
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
                             <span style="color:var(--text-secondary); font-size:0.85rem;">Points (8 weeks)</span>
                             <div><?php echo renderSparkline($landsraadSeries, 220, 40, '#2196F3'); ?></div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
+                            <span style="display:inline-flex; align-items:center; gap:6px;">
+                                <span style="display:inline-block; width:10px; height:10px; background:#2196F3; border-radius:2px;"></span>
+                                Points
+                            </span>
                         </div>
                     </div>
                     <?php if (empty($landsraad_week)): ?>
