@@ -22,30 +22,67 @@ function callOpenAIExtract(string $text): array {
     $payload = [
         'model' => 'gpt-4o-mini',
         'temperature' => 0,
+        'response_format' => ['type' => 'json_object'],
         'messages' => [
             ['role' => 'system', 'content' => $system],
             ['role' => 'user', 'content' => $userMsg]
         ]
     ];
-    $ch = curl_init($url);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+
+    $headers = [
         'Content-Type: application/json',
         'Authorization: Bearer ' . $apiKey
-    ]);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload));
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    $resp = curl_exec($ch);
-    if ($resp === false) throw new Exception('AI request failed');
-    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($code < 200 || $code >= 300) throw new Exception('AI request error');
+    ];
+
+    $resp = null; $code = 0; $err = null;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode($payload),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 20,
+        ]);
+        $resp = curl_exec($ch);
+        if ($resp === false) { $err = curl_error($ch); }
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+    } else {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'POST',
+                'header' => implode("\r\n", $headers),
+                'content' => json_encode($payload),
+                'timeout' => 20,
+            ]
+        ]);
+        $resp = @file_get_contents($url, false, $context);
+        if (isset($http_response_header)) {
+            foreach ($http_response_header as $h) { if (preg_match('/^HTTP\/\d\.\d\s+(\d+)/', $h, $m)) { $code = (int)$m[1]; break; } }
+        }
+        if ($resp === false) { $err = 'stream_context request failed'; }
+    }
+
+    if ($resp === false || $resp === null) {
+        error_log('AI request failed: ' . ($err ?: 'unknown'));
+        throw new Exception('AI request failed');
+    }
+    if ($code < 200 || $code >= 300) {
+        $body = json_decode($resp, true);
+        $detail = $body['error']['message'] ?? ('HTTP ' . $code);
+        error_log('AI request error: ' . $detail);
+        throw new Exception('AI request error');
+    }
     $data = json_decode($resp, true);
     $content = $data['choices'][0]['message']['content'] ?? '';
     $jsonStart = strpos($content, '{');
     if ($jsonStart !== false) $content = substr($content, $jsonStart);
     $parsed = json_decode($content, true);
-    if (!is_array($parsed)) throw new Exception('AI parse error');
+    if (!is_array($parsed)) {
+        error_log('AI parse error. Raw content: ' . substr($content, 0, 300));
+        throw new Exception('AI parse error');
+    }
     return $parsed;
 }
 
@@ -68,6 +105,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             try {
                 $parsed = callOpenAIExtract($freeform);
             } catch (Throwable $e) {
+                error_log('AI analyze error: ' . $e->getMessage());
                 $message = 'AI failed to analyze input.';
                 $message_type = 'error';
             }
