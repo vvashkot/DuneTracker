@@ -37,6 +37,30 @@ $my_air = $db->prepare("SELECT COUNT(*) FROM combat_events WHERE user_id=? AND t
 $my_air->execute([$user['db_id'], $since]);
 $my_air = (int)$my_air->fetchColumn();
 
+// Leaderboards (weekly and since date)
+$week_start = date('Y-m-d', strtotime('monday this week'));
+$week_end = date('Y-m-d 23:59:59', strtotime('sunday this week'));
+
+$top_ground_week = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='ground_kill' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 10");
+$top_ground_week->execute([$week_start, $week_end]);
+$top_ground_week = $top_ground_week->fetchAll();
+
+$top_air_week = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='air_kill' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 10");
+$top_air_week->execute([$week_start, $week_end]);
+$top_air_week = $top_air_week->fetchAll();
+
+// Since date leaderboards reuse $since
+$top_ground_since = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='ground_kill' AND ce.occurred_at >= ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 10");
+$top_ground_since->execute([$since]);
+$top_ground_since = $top_ground_since->fetchAll();
+
+$top_air_since = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.type='air_kill' AND ce.occurred_at >= ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 10");
+$top_air_since->execute([$since]);
+$top_air_since = $top_air_since->fetchAll();
+
+// Weekly totals (last 12 weeks) per type
+$weekly_totals = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, DATE_FORMAT(STR_TO_DATE(CONCAT(YEARWEEK(occurred_at,1),' Monday'), '%X%V %W'), '%Y-%m-%d') as week_start, type, COUNT(*) as cnt FROM combat_events GROUP BY YEARWEEK(occurred_at,1), type ORDER BY yw DESC LIMIT 24")->fetchAll();
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -87,6 +111,75 @@ $my_air = (int)$my_air->fetchColumn();
       <h3>My Stats since <?php echo htmlspecialchars($since); ?></h3>
       <p>Ground kills: <strong><?php echo number_format($my_ground); ?></strong></p>
       <p>Air kills: <strong><?php echo number_format($my_air); ?></strong></p>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>Weekly Leaderboards</h3>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+        <div>
+          <h4>Top Ground (This Week)</h4>
+          <ul>
+            <?php foreach ($top_ground_week as $row): ?><li><?php echo htmlspecialchars($row['username']); ?> — <?php echo $row['cnt']; ?></li><?php endforeach; ?>
+            <?php if (empty($top_ground_week)): ?><li class="empty-state">No data.</li><?php endif; ?>
+          </ul>
+        </div>
+        <div>
+          <h4>Top Air (This Week)</h4>
+          <ul>
+            <?php foreach ($top_air_week as $row): ?><li><?php echo htmlspecialchars($row['username']); ?> — <?php echo $row['cnt']; ?></li><?php endforeach; ?>
+            <?php if (empty($top_air_week)): ?><li class="empty-state">No data.</li><?php endif; ?>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>Leaderboards Since <?php echo htmlspecialchars($since); ?></h3>
+      <form method="GET" class="form-inline" style="margin-bottom:0.75rem;">
+        <label for="since" class="form-label" style="margin:0 0.5rem 0 0;">Since</label>
+        <input type="date" id="since" name="since" class="form-control" value="<?php echo htmlspecialchars($since); ?>">
+        <button class="btn btn-secondary" type="submit">Update</button>
+      </form>
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:1rem;">
+        <div>
+          <h4>Top Ground</h4>
+          <ul>
+            <?php foreach ($top_ground_since as $row): ?><li><?php echo htmlspecialchars($row['username']); ?> — <?php echo $row['cnt']; ?></li><?php endforeach; ?>
+            <?php if (empty($top_ground_since)): ?><li class="empty-state">No data.</li><?php endif; ?>
+          </ul>
+        </div>
+        <div>
+          <h4>Top Air</h4>
+          <ul>
+            <?php foreach ($top_air_since as $row): ?><li><?php echo htmlspecialchars($row['username']); ?> — <?php echo $row['cnt']; ?></li><?php endforeach; ?>
+            <?php if (empty($top_air_since)): ?><li class="empty-state">No data.</li><?php endif; ?>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>Weekly Totals (Last 12 Weeks)</h3>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>Week Starting</th><th>Ground</th><th>Air</th></tr></thead><tbody>
+          <?php 
+          // reshape weekly totals per week
+          $byWeek = [];
+          foreach ($weekly_totals as $row) {
+            $wk = $row['week_start'] ?: $row['yw'];
+            if (!isset($byWeek[$wk])) $byWeek[$wk] = ['ground_kill'=>0,'air_kill'=>0];
+            $byWeek[$wk][$row['type']] = (int)$row['cnt'];
+          }
+          foreach ($byWeek as $wk => $counts): ?>
+            <tr>
+              <td><?php echo htmlspecialchars($wk); ?></td>
+              <td class="quantity"><?php echo number_format($counts['ground_kill']); ?></td>
+              <td class="quantity"><?php echo number_format($counts['air_kill']); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($byWeek)): ?><tr><td colspan="3" class="empty-state">No weekly data.</td></tr><?php endif; ?>
+        </tbody></table>
+      </div>
     </div>
   </div>
 </body>
