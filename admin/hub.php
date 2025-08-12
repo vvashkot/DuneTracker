@@ -76,6 +76,10 @@ $roster = $roster->fetchAll();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hub Management - Admin</title>
     <link rel="stylesheet" href="/css/style-v2.css">
+    <style>
+        .form-inline .form-control { width: auto; min-width: 200px; max-width: 280px; }
+        @media (max-width: 768px) { .form-inline .form-control { max-width: 100%; width: 100%; } }
+    </style>
 </head>
 <body>
     <nav class="navbar">
