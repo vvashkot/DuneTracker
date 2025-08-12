@@ -187,6 +187,7 @@ $recent_activity = getActivityLogs(20);
                 <li><a href="/admin/landsraad.php">🏛️ Landsraad</a></li>
                 <li><a href="/admin/combat.php">⚔️ Combat</a></li>
                 <li><a href="/admin/withdrawals.php">📤 Withdrawals</a></li>
+                <li><a href="/admin/migrations.php">🧩 Migrations</a></li>
                 <li><a href="/admin/resources.php">📦 Resources</a></li>
                 <li><a href="/admin/runs.php">🚜 Farming Runs</a></li>
                 <li><a href="/admin/logs.php">📋 Activity Logs</a></li>
