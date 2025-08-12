@@ -25,8 +25,17 @@ function getCurrentMigrationVersion(PDO $db): int {
 }
 
 $current = getCurrentMigrationVersion($db);
-$migrationsDir = dirname(__DIR__, 2) . '/database/migrations';
-$files = glob($migrationsDir . '/*.sql');
+$candidateDirs = [
+    dirname(__DIR__, 2) . '/database/migrations',
+    dirname(__DIR__) . '/database/migrations',
+];
+$files = [];
+foreach ($candidateDirs as $dir) {
+    if (is_dir($dir)) {
+        $files = glob($dir . '/*.sql');
+        if (!empty($files)) break;
+    }
+}
 natsort($files);
 
 $applied = 0;

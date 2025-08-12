@@ -24,8 +24,18 @@ function getCurrentMigrationVersion(PDO $db): int {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'run') {
     verifyPOST();
     $current = getCurrentMigrationVersion($db);
-    $migrationsDir = dirname(__DIR__, 2) . '/database/migrations';
-    $files = glob($migrationsDir . '/*.sql');
+    // Support both monorepo root and public_html-only deploys
+    $candidateDirs = [
+        dirname(__DIR__, 2) . '/database/migrations', // repo root
+        dirname(__DIR__) . '/database/migrations',     // inside public_html
+    ];
+    $files = [];
+    foreach ($candidateDirs as $dir) {
+        if (is_dir($dir)) {
+            $files = glob($dir . '/*.sql');
+            if (!empty($files)) break;
+        }
+    }
     natsort($files);
     try {
         foreach ($files as $file) {
