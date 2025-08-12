@@ -11,14 +11,16 @@ $message_type = '';
 $parsed = null;
 $items = [];
 $resolvedParticipants = [];
+$shares = [];
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
     if (!$apiKey) throw new Exception('Missing OPENAI_API_KEY');
     $url = 'https://api.openai.com/v1/chat/completions';
     $system = 'Extract structured data for a guild resource tracker. '
-            . 'Return ONLY JSON with keys: items (array of {resource_name, quantity, notes?}), participants (array of strings), target (personal|group|run), split (equal|none), run_hint?. '
-            . 'Infer integers; keep resource_name concise (matchable). If names in parentheses like (Cap/Kes/Vva) are present, output participants split by /.';
+            . 'Return ONLY JSON with keys: items (array of {resource_name, quantity, notes?}), participants (array of strings), target (personal|group|run), split (equal|weighted|none), shares (object mapping participant name to fraction between 0 and 1; only if split is weighted), run_hint?. '
+            . 'Infer integers; keep resource_name concise (matchable). If names in parentheses like (Cap/Kes/Vva) are present, output participants split by /. '
+            . 'If text contains patterns like "split by Cap 50%, Kes 30%, Vva 20%" or similar, set split="weighted" and shares to {"Cap":0.5,"Kes":0.3,"Vva":0.2} (normalized to sum 1). Otherwise set split="equal" when participants are provided without explicit weights.';
     $userMsg = 'Text: ' . $text . "\nRespond with JSON only.";
     $payload = [
         'model' => 'gpt-4o-mini',
@@ -146,6 +148,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $names = $parsed['participants'];
                 }
                 $resolvedParticipants = resolveParticipantNames($names);
+                if (!empty($parsed['shares']) && is_array($parsed['shares'])) {
+                    $shares = $parsed['shares'];
+                } elseif (!empty($parsed['shares']) && is_object($parsed['shares'])) {
+                    $shares = (array)$parsed['shares'];
+                }
             } catch (Throwable $e) {
                 error_log('AI analyze error: ' . $e->getMessage());
                 $message = 'AI failed to analyze input.';
@@ -184,6 +191,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         // Save multiple items, possibly split among participants
         $rawItems = json_decode($_POST['items_json'] ?? '[]', true) ?: [];
         $rawParticipants = json_decode($_POST['participants_json'] ?? '[]', true) ?: [];
+        $rawShares = json_decode($_POST['shares_json'] ?? 'null', true);
         if (empty($rawItems)) {
             $message = 'Nothing to save.';
             $message_type = 'error';
@@ -201,10 +209,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $rid = findResourceIdByName($rname);
                     if (!$rid) continue;
                     if ($numUsers > 0) {
-                        $base = intdiv($qty, $numUsers);
-                        $rem = $qty - ($base * $numUsers);
-                        foreach ($validUsers as $idx => $p) {
-                            $q = $base + ($idx < $rem ? 1 : 0);
+                        // Build weights
+                        $weights = [];
+                        $sum = 0.0;
+                        if (is_array($rawShares) && !empty($rawShares)) {
+                            foreach ($validUsers as $p) {
+                                $name = $p['name'];
+                                $w = 0.0;
+                                foreach ($rawShares as $k => $v) {
+                                    if (strcasecmp($k, $name) === 0) { $w = floatval($v); break; }
+                                }
+                                $weights[$p['id']] = $w;
+                                $sum += $w;
+                            }
+                        }
+                        if ($sum <= 0) {
+                            // equal split
+                            foreach ($validUsers as $p) { $weights[$p['id']] = 1.0; }
+                            $sum = (float)$numUsers;
+                        }
+                        // Normalize and allocate integer quantities using largest remainder
+                        $alloc = [];
+                        $fractions = [];
+                        $assigned = 0;
+                        foreach ($validUsers as $p) {
+                            $w = $weights[$p['id']] / $sum;
+                            $portion = $qty * $w;
+                            $q = (int)floor($portion);
+                            $alloc[$p['id']] = $q;
+                            $fractions[$p['id']] = $portion - $q;
+                            $assigned += $q;
+                        }
+                        $rem = $qty - $assigned;
+                        if ($rem > 0) {
+                            arsort($fractions);
+                            foreach (array_keys($fractions) as $uid) {
+                                if ($rem <= 0) break;
+                                $alloc[$uid] += 1;
+                                $rem--;
+                            }
+                        }
+                        foreach ($validUsers as $p) {
+                            $q = $alloc[$p['id']] ?? 0;
                             if ($q > 0) {
                                 addContribution($p['id'], (int)$rid, $q, $notes ? ($notes . ' (AI split)') : 'AI split');
                             }
@@ -286,7 +332,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         <?php if (!empty($resolvedParticipants)): ?>
           <div style="margin:0.75rem 0; color:var(--text-secondary);">
             Participants: <?php echo htmlspecialchars(implode(', ', array_map(fn($p) => $p['name'], $resolvedParticipants))); ?>
-            <?php if ($split === 'equal'): ?> — split equally<?php endif; ?>
+            <?php if ($split === 'equal'): ?> — split equally<?php elseif ($split === 'weighted' && !empty($shares)): ?> — weighted: 
+              <?php 
+                $parts = [];
+                foreach ($shares as $k=>$v) { $parts[] = htmlspecialchars($k) . ' ' . round($v*100) . '%'; }
+                echo htmlspecialchars(implode(', ', $parts));
+              ?>
+            <?php endif; ?>
           </div>
         <?php endif; ?>
         <form method="POST" style="margin-top:1rem;">
@@ -294,6 +346,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <input type="hidden" name="action" value="save_multi">
           <input type="hidden" name="items_json" value='<?php echo json_encode($items); ?>'>
           <input type="hidden" name="participants_json" value='<?php echo json_encode(array_map(fn($p)=>$p['name'], $resolvedParticipants)); ?>'>
+          <input type="hidden" name="shares_json" value='<?php echo json_encode($shares); ?>'>
           <button class="btn btn-success" type="submit">Confirm & Save</button>
         </form>
       </div>
