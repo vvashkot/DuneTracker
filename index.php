@@ -6,8 +6,66 @@
 require_once 'includes/auth.php';
 require_once 'includes/db.php';
 
-// Require login
-requireLogin();
+// Landing for guests; dashboard for logged-in users
+$isLoggedIn = isLoggedIn();
+if (!$isLoggedIn) {
+    // Public landing page with login CTA
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title><?php echo htmlspecialchars(GUILD_NAME ?? APP_NAME); ?> - Welcome</title>
+        <link rel="stylesheet" href="/css/style-v2.css">
+        <style>
+            .hero { padding: 4rem 0; text-align: center; }
+            .hero h1 { font-size: 2.25rem; margin-bottom: 0.5rem; }
+            .hero p { color: var(--text-secondary); max-width: 720px; margin: 0.5rem auto 1.5rem; }
+            .features { display: grid; gap: 1rem; max-width: 900px; margin: 2rem auto; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+            .feature { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 1rem; }
+            .footer { text-align: center; color: var(--text-secondary); margin-top: 2rem; font-size: 0.875rem; }
+        </style>
+    </head>
+    <body>
+        <nav class="navbar">
+            <div class="nav-container">
+                <h1 class="nav-title"><?php echo htmlspecialchars(GUILD_NAME ?? APP_NAME); ?></h1>
+                <div class="nav-user">
+                    <a href="/login.php" class="btn btn-primary">Login with Discord</a>
+                </div>
+            </div>
+        </nav>
+        <div class="container">
+            <section class="hero">
+                <h1>Welcome to <?php echo htmlspecialchars(GUILD_NAME ?? 'our guild'); ?></h1>
+                <p>
+                    A community hub for Dune: Awakening. Track farming runs, contributions, and refined outputs like Melange and Plastanium.
+                    Join with your Discord to participate and see guild dashboards.
+                </p>
+                <a href="/login.php" class="btn btn-primary" style="font-size:1.1rem; padding:0.75rem 1.25rem;">Login with Discord</a>
+            </section>
+            <section class="features">
+                <div class="feature">
+                    <h3>🚜 Farming Runs</h3>
+                    <p>Organize runs, log collections, and compute fair distributions.</p>
+                </div>
+                <div class="feature">
+                    <h3>📦 Contributions</h3>
+                    <p>Submit resources individually or as a group and track history.</p>
+                </div>
+                <div class="feature">
+                    <h3>⚗️ Refining</h3>
+                    <p>Preview Spice → Melange and two-input recipes; distribute results.</p>
+                </div>
+            </section>
+            <div class="footer">&copy; <?php echo date('Y'); ?> <?php echo htmlspecialchars(GUILD_NAME ?? APP_NAME); ?></div>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
 
 $user = getCurrentUser();
 
