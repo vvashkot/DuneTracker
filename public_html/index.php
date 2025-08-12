@@ -389,6 +389,7 @@ try {
             <div class="header-actions">
                 <a href="/farming-runs.php" class="btn btn-primary">Farming Runs</a>
                 <a href="/submit.php" class="btn btn-secondary">Quick Submit</a>
+                <a href="/ai-submit.php" class="btn btn-primary">Submit with AI</a>
                 <a href="/withdraw.php" class="btn btn-secondary">Withdraw</a>
                 <a href="/reports.php" class="btn btn-secondary">Reports</a>
                 <a href="/my-contributions.php" class="btn btn-secondary">My Contributions</a>
