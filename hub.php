@@ -47,6 +47,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $message_type = 'success';
                 }
                 break;
+            case 'save_roster_self':
+                $week_start = getWeekStart();
+                $role = trim($_POST['role'] ?? '');
+                $notes = trim($_POST['notes'] ?? '');
+                $stmt = $db->prepare("INSERT INTO circuit_roster (user_id, week_start, role, notes) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE role=VALUES(role), notes=VALUES(notes)");
+                $stmt->execute([$user['db_id'], $week_start, $role ?: null, $notes ?: null]);
+                $message = 'Circuit roster updated';
+                $message_type = 'success';
+                break;
         }
     } catch (Throwable $e) {
         $message = 'Operation failed';
@@ -69,6 +78,11 @@ if ($filter_resource_id) {
 $my_chores = $db->prepare("SELECT * FROM hub_chore_logs WHERE user_id=? ORDER BY occurred_at DESC LIMIT 50");
 $my_chores->execute([$user['db_id']]);
 $my_chores = $my_chores->fetchAll();
+
+// Load this week's roster (all users)
+$roster_stmt = $db->prepare("SELECT c.*, COALESCE(u.in_game_name, u.username) as username FROM circuit_roster c JOIN users u ON c.user_id=u.id WHERE week_start=? ORDER BY username");
+$roster_stmt->execute([$week_start]);
+$roster_all = $roster_stmt->fetchAll();
 
 ?>
 <!DOCTYPE html>
@@ -150,6 +164,31 @@ $my_chores = $my_chores->fetchAll();
               <td><?php echo htmlspecialchars($c['notes'] ?? '-'); ?></td>
             </tr>
           <?php endforeach; ?>
+        </tbody></table>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>Circuit Roster (This Week)</h3>
+      <form method="POST" class="form-inline" style="margin-bottom:1rem;">
+        <?php echo csrfField(); ?>
+        <input type="hidden" name="action" value="save_roster_self">
+        <input type="text" name="role" class="form-control" placeholder="Your role (optional)">
+        <input type="text" name="notes" class="form-control" placeholder="Notes (optional)">
+        <button type="submit" class="btn btn-primary">Save My Entry</button>
+      </form>
+      <div class="table-responsive">
+        <table class="data-table"><thead><tr><th>User</th><th>Role</th><th>Notes</th></tr></thead><tbody>
+          <?php foreach ($roster_all as $r): ?>
+            <tr>
+              <td><?php echo htmlspecialchars($r['username']); ?></td>
+              <td><?php echo htmlspecialchars($r['role'] ?? '-'); ?></td>
+              <td><?php echo htmlspecialchars($r['notes'] ?? '-'); ?></td>
+            </tr>
+          <?php endforeach; ?>
+          <?php if (empty($roster_all)): ?>
+            <tr><td colspan="3" class="empty-state">No entries yet.</td></tr>
+          <?php endif; ?>
         </tbody></table>
       </div>
     </div>
