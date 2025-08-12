@@ -133,6 +133,23 @@ function findResourceIdByName(string $name) {
     return $stmt->fetchColumn() ?: null;
 }
 
+function resolveResource(array $item): array {
+    $name = (string)($item['resource_name'] ?? '');
+    $rid = findResourceIdByName($name);
+    if ($rid) {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT name FROM resources WHERE id = ?");
+        $stmt->execute([$rid]);
+        $resolvedName = $stmt->fetchColumn() ?: $name;
+        $item['resolved_id'] = (int)$rid;
+        $item['resolved_name'] = $resolvedName;
+    } else {
+        $item['resolved_id'] = null;
+        $item['resolved_name'] = $name;
+    }
+    return $item;
+}
+
 function resolveParticipantNames(array $names): array {
     $db = getDB();
     $resolved = [];
@@ -179,6 +196,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     ];
                     if (!empty($single['resource_name']) && $single['quantity'] > 0) $items = [$single];
                 }
+                // Resolve resources now so review shows canonical names
+                $items = array_map('resolveResource', $items);
                 $names = [];
                 if (!empty($parsed['participants']) && is_array($parsed['participants'])) {
                     $names = $parsed['participants'];
@@ -242,7 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $qty = (int)($it['quantity'] ?? 0);
                     $notes = trim((string)($it['notes'] ?? ''));
                     if ($rname === '' || $qty <= 0) continue;
-                    $rid = findResourceIdByName($rname);
+                    $rid = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
                     if (!$rid) continue;
                     if ($numUsers > 0) {
                         // Build weights
@@ -358,7 +377,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <table class="data-table"><thead><tr><th>Resource</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>
             <?php foreach ($items as $it): ?>
               <tr>
-                <td><?php echo htmlspecialchars((string)($it['resource_name'] ?? '')); ?></td>
+                <td><?php echo htmlspecialchars((string)($it['resolved_name'] ?? ($it['resource_name'] ?? ''))); ?></td>
                 <td class="quantity"><?php echo number_format((int)($it['quantity'] ?? 0)); ?></td>
                 <td><?php echo htmlspecialchars((string)($it['notes'] ?? '')); ?></td>
               </tr>
