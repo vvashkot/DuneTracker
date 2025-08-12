@@ -176,6 +176,41 @@ function resolveParticipantNames(array $names): array {
     return $resolved;
 }
 
+function normalizeKey(string $s): string {
+    return preg_replace('/[^a-z0-9]+/i', '', strtolower($s));
+}
+
+function scoreNameMatch(string $key, string $candidate): int {
+    $k = normalizeKey($key);
+    $c = normalizeKey($candidate);
+    if ($k === '' || $c === '') return 0;
+    if (str_starts_with($c, $k)) return 3;      // best: key is a prefix of candidate
+    if (str_contains($c, $k)) return 2;        // good: key appears inside candidate
+    if (levenshtein($k, substr($c, 0, min(strlen($c), strlen($k)))) <= 1) return 1; // fuzzy
+    return 0;
+}
+
+function mapSharesToParticipants(array $rawShares, array $participants): array {
+    // rawShares: name => fraction or percent; participants: [ ['id'=>, 'name'=>], ... ]
+    $weights = [];
+    foreach ($rawShares as $name => $value) {
+        $w = is_numeric($value) ? floatval($value) : 0.0;
+        if ($w <= 0) continue;
+        if ($w > 1.0 && $w <= 100.0) $w = $w / 100.0; // percent → fraction
+        // find best participant match for this share name
+        $bestUid = null; $bestScore = 0;
+        foreach ($participants as $p) {
+            if (empty($p['id'])) continue;
+            $score = scoreNameMatch((string)$name, (string)$p['name']);
+            if ($score > $bestScore) { $bestScore = $score; $bestUid = (int)$p['id']; }
+        }
+        if ($bestUid !== null) {
+            $weights[$bestUid] = ($weights[$bestUid] ?? 0.0) + $w;
+        }
+    }
+    return $weights;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     verifyPOST();
     if ($_POST['action'] === 'analyze') {
@@ -264,19 +299,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $rid = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
                     if (!$rid) continue;
                     if ($numUsers > 0) {
-                        // Build weights
+                        // Build weights using fuzzy mapping for share keys
                         $weights = [];
                         $sum = 0.0;
                         if (is_array($rawShares) && !empty($rawShares)) {
-                            foreach ($validUsers as $p) {
-                                $name = $p['name'];
-                                $w = 0.0;
-                                foreach ($rawShares as $k => $v) {
-                                    if (strcasecmp($k, $name) === 0) { $w = floatval($v); break; }
-                                }
-                                $weights[$p['id']] = $w;
-                                $sum += $w;
-                            }
+                            $weights = mapSharesToParticipants($rawShares, $validUsers);
+                            $sum = array_sum($weights);
                         }
                         if ($sum <= 0) {
                             // equal split
