@@ -6,11 +6,17 @@ header('Content-Type: application/json');
 
 try {
     requireLogin();
-    if (!isAdmin()) {
+    // Leaders or admins can preview
+    $run_id = isset($_GET['run_id']) ? intval($_GET['run_id']) : 0;
+    $user = getCurrentUser();
+    $participants = $run_id ? getRunParticipants($run_id) : [];
+    $is_leader = false;
+    foreach ($participants as $p) { if ($p['user_id'] == $user['db_id'] && $p['role'] === 'leader') { $is_leader = true; break; } }
+    if (!isAdmin() && !$is_leader) {
         echo json_encode(['error' => 'Forbidden']);
         exit;
     }
-    $run_id = isset($_GET['run_id']) ? intval($_GET['run_id']) : 0;
+    
     $algo = $_GET['algo'] ?? 'weighted_across_runs';
     $discounted = isset($_GET['discounted']) && intval($_GET['discounted']) === 1;
     if ($run_id <= 0) {

@@ -115,6 +115,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
             }
             break;
+
+        case 'mark_left':
+            if (($is_leader || $is_admin) && $run['status'] === 'active') {
+                $user_id = (int)($_POST['user_id'] ?? 0);
+                if ($user_id) {
+                    markRunParticipantLeft($run_id, $user_id);
+                    header('Location: /farming-run.php?id=' . $run_id);
+                    exit();
+                }
+            }
+            break;
+
+        case 'rejoin':
+            if (($is_leader || $is_admin || $user['db_id'] == ($_POST['user_id'] ?? 0)) && $run['status'] === 'active') {
+                $user_id = (int)($_POST['user_id'] ?? 0);
+                if ($user_id) {
+                    rejoinRunParticipant($run_id, $user_id);
+                    header('Location: /farming-run.php?id=' . $run_id);
+                    exit();
+                }
+            }
+            break;
             
         case 'remove_participant':
             if (($is_leader || $is_admin) && $run['status'] === 'active') {
@@ -830,6 +852,26 @@ foreach ($refined_outputs as $output) {
                             'discord_id' => $participant['discord_id']
                         ])); ?>" alt="Avatar" class="small-avatar">
                         <span><?php echo htmlspecialchars($participant['username']); ?></span>
+                        <span style="margin-left:auto; font-size:0.8rem; color:var(--text-secondary);">
+                          <?php echo $participant['left_at'] ? ('Left: ' . date('H:i', strtotime($participant['left_at']))) : 'Active'; ?>
+                        </span>
+                        <?php if ($is_leader || $is_admin): ?>
+                          <?php if (!$participant['left_at']): ?>
+                            <form method="POST" style="display:inline; margin-left:0.5rem;">
+                              <?php echo csrfField(); ?>
+                              <input type="hidden" name="action" value="mark_left">
+                              <input type="hidden" name="user_id" value="<?php echo (int)$participant['user_id']; ?>">
+                              <button class="btn btn-secondary btn-sm" title="Mark Left">Mark Left</button>
+                            </form>
+                          <?php else: ?>
+                            <form method="POST" style="display:inline; margin-left:0.5rem;">
+                              <?php echo csrfField(); ?>
+                              <input type="hidden" name="action" value="rejoin">
+                              <input type="hidden" name="user_id" value="<?php echo (int)$participant['user_id']; ?>">
+                              <button class="btn btn-secondary btn-sm" title="Rejoin">Rejoin</button>
+                            </form>
+                          <?php endif; ?>
+                        <?php endif; ?>
                         <?php if ($participant['role'] === 'leader'): ?>
                             <span class="role-badge">Leader</span>
                         <?php endif; ?>

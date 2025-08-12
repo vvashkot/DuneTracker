@@ -320,6 +320,24 @@ function addRunParticipant($run_id, $user_id, $role = 'member') {
     return $stmt->execute([$run_id, $user_id, $role]);
 }
 
+// Mark participant as left (sets left_at)
+function markRunParticipantLeft($run_id, $user_id, $left_at = null) {
+    $db = getDB();
+    if ($left_at === null) {
+        $stmt = $db->prepare("UPDATE run_participants SET left_at = NOW() WHERE run_id = ? AND user_id = ?");
+        return $stmt->execute([$run_id, $user_id]);
+    }
+    $stmt = $db->prepare("UPDATE run_participants SET left_at = ? WHERE run_id = ? AND user_id = ?");
+    return $stmt->execute([$left_at, $run_id, $user_id]);
+}
+
+// Allow participant to rejoin (reset joined_at, clear left_at)
+function rejoinRunParticipant($run_id, $user_id) {
+    $db = getDB();
+    $stmt = $db->prepare("UPDATE run_participants SET joined_at = NOW(), left_at = NULL WHERE run_id = ? AND user_id = ?");
+    return $stmt->execute([$run_id, $user_id]);
+}
+
 // Get active farming runs
 function getActiveFarmingRuns() {
     $db = getDB();
@@ -362,7 +380,7 @@ function getRunParticipants($run_id) {
     $stmt = $db->prepare("
         SELECT 
             rp.*,
-            u.username,
+            COALESCE(u.in_game_name, u.username) as username,
             u.avatar,
             u.discord_id
         FROM run_participants rp
@@ -560,12 +578,16 @@ function computeSpiceToMelangeDistribution(array $run_ids, string $algorithm = '
         $run_totals[(int)$row['run_id']] = (int)$row['qty'];
     }
 
-    // Participants per run
-    $stmt = $db->prepare("SELECT run_id, user_id FROM run_participants WHERE run_id IN ($placeholders)");
+    // Participants per run with time windows
+    $stmt = $db->prepare("SELECT run_id, user_id, joined_at, COALESCE(left_at, NOW()) as left_at FROM run_participants WHERE run_id IN ($placeholders)");
     $stmt->execute($run_ids);
     $participants = [];
     foreach ($stmt->fetchAll() as $row) {
-        $participants[(int)$row['run_id']][] = (int)$row['user_id'];
+        $participants[(int)$row['run_id']][] = [
+            'user_id' => (int)$row['user_id'],
+            'joined_at' => $row['joined_at'],
+            'left_at' => $row['left_at'],
+        ];
     }
 
     // Initialize per-user input shares
@@ -578,16 +600,63 @@ function computeSpiceToMelangeDistribution(array $run_ids, string $algorithm = '
             $count = count($users);
             if ($total <= 0 || $count === 0) continue;
             $share = $total / $count;
-            foreach ($users as $uid) {
+            foreach ($users as $p) {
+                $uid = (int)$p['user_id'];
                 if (!isset($per_user_input[$uid])) $per_user_input[$uid] = 0;
                 $per_user_input[$uid] += $share;
             }
         }
     } else { // weighted_across_runs
-        $stmt = $db->prepare("SELECT collected_by as user_id, SUM(quantity) as qty FROM run_collections WHERE run_id IN ($placeholders) AND resource_id IN ($spice_placeholders) AND collected_by IS NOT NULL GROUP BY collected_by");
+        // Time-weighted across runs: weight each user's spice contribution by their active minutes within each run
+        $stmt = $db->prepare("SELECT run_id, collected_by as user_id, SUM(quantity) as qty FROM run_collections WHERE run_id IN ($placeholders) AND resource_id IN ($spice_placeholders) AND collected_by IS NOT NULL GROUP BY run_id, collected_by");
         $stmt->execute(array_merge($run_ids, $spice_ids));
-        foreach ($stmt->fetchAll() as $row) {
-            $per_user_input[(int)$row['user_id']] = (int)$row['qty'];
+        $rows = $stmt->fetchAll();
+        // Build run time windows for participants
+        $run_windows = [];
+        foreach ($participants as $rid => $list) {
+            foreach ($list as $p) {
+                $run_windows[$rid][$p['user_id']] = [
+                    'joined_at' => strtotime($p['joined_at']),
+                    'left_at' => strtotime($p['left_at']),
+                ];
+            }
+        }
+        // Fetch run start/end
+        $ph2 = implode(',', array_fill(0, count($run_ids), '?'));
+        $st = $db->prepare("SELECT id, UNIX_TIMESTAMP(started_at) as start_ts, UNIX_TIMESTAMP(COALESCE(ended_at, NOW())) as end_ts FROM farming_runs WHERE id IN ($ph2)");
+        $st->execute($run_ids);
+        $run_times = [];
+        foreach ($st->fetchAll() as $r) { $run_times[(int)$r['id']] = [$r['start_ts'], $r['end_ts']]; }
+        // Compute per-user weights based on active minutes fraction within each run
+        $user_weight_sum = [];
+        $run_total_weight = [];
+        foreach ($participants as $rid => $list) {
+            [$rs, $re] = $run_times[$rid] ?? [null, null];
+            if (!$rs || !$re) continue;
+            $total_minutes = max(1, intval(($re - $rs) / 60));
+            foreach ($list as $p) {
+                $js = max($rs, strtotime($p['joined_at']));
+                $le = min($re, strtotime($p['left_at']));
+                if ($le <= $js) continue;
+                $mins = max(0, intval(($le - $js) / 60));
+                if (!isset($user_weight_sum[$rid])) $user_weight_sum[$rid] = [];
+                $user_weight_sum[$rid][$p['user_id']] = ($user_weight_sum[$rid][$p['user_id']] ?? 0) + ($mins / $total_minutes);
+                $run_total_weight[$rid] = ($run_total_weight[$rid] ?? 0) + ($mins / $total_minutes);
+            }
+        }
+        // Apply weights to each user's per-run qty
+        foreach ($rows as $row) {
+            $rid = (int)$row['run_id'];
+            $uid = (int)$row['user_id'];
+            $qty = (int)$row['qty'];
+            $w = $user_weight_sum[$rid][$uid] ?? 0;
+            $rtot = $run_total_weight[$rid] ?? 0;
+            if ($rtot > 0) {
+                $adjusted = $qty * ($w / $rtot);
+            } else {
+                $adjusted = $qty;
+            }
+            $per_user_input[$uid] = ($per_user_input[$uid] ?? 0) + $adjusted;
         }
         // If no per-user data (all NULL collections), fall back to equal_per_run
         if (empty($per_user_input)) {
@@ -597,7 +666,8 @@ function computeSpiceToMelangeDistribution(array $run_ids, string $algorithm = '
                 $count = count($users);
                 if ($total <= 0 || $count === 0) continue;
                 $share = $total / $count;
-                foreach ($users as $uid) {
+                foreach ($users as $p) {
+                    $uid = (int)$p['user_id'];
                     if (!isset($per_user_input[$uid])) $per_user_input[$uid] = 0;
                     $per_user_input[$uid] += $share;
                 }
