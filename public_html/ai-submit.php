@@ -11,7 +11,7 @@ $message_type = '';
 $parsed = null;
 
 function callOpenAIExtract(string $text): array {
-    $apiKey = getenv('OPENAI_API_KEY');
+    $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
     if (!$apiKey) throw new Exception('Missing OPENAI_API_KEY');
     $url = 'https://api.openai.com/v1/chat/completions';
     $system = 'You extract structured data for a guild resource tracker. '

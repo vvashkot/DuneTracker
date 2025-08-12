@@ -51,3 +51,9 @@ ini_set('session.cookie_httponly', 1);
 ini_set('session.cookie_secure', 1); // Enable only on HTTPS
 ini_set('session.use_only_cookies', 1);
 ini_set('session.use_strict_mode', 1);
+
+// Optional API Keys
+if (!defined('OPENAI_API_KEY')) {
+    // You can set this constant here, or place it in config.local.php, or use the env var OPENAI_API_KEY
+    define('OPENAI_API_KEY', null);
+}
