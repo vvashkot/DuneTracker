@@ -513,7 +513,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                            name="contributors[]" 
                                            value="<?php echo $member['id']; ?>"
                                            <?php echo $member['id'] == $user['db_id'] ? 'checked' : ''; ?>>
-                                    <?php echo htmlspecialchars($member['username']); ?>
+                                    <?php echo htmlspecialchars($member['in_game_name'] ?? $member['username']); ?>
                                     <?php if ($member['is_manual']): ?>
                                         <span style="color: var(--text-secondary); font-size: 0.875rem;">(Manual)</span>
                                     <?php endif; ?>
