@@ -309,6 +309,9 @@ while ($row = $stmt->fetch()) {
                 <a href="/withdraw.php" class="btn btn-secondary">Withdraw</a>
                 <a href="/reports.php" class="btn btn-secondary">Reports</a>
                 <a href="/my-contributions.php" class="btn btn-secondary">My Contributions</a>
+                <a href="/hub.php" class="btn btn-secondary">My Hub</a>
+                <a href="/landsraad.php" class="btn btn-secondary">My Landsraad</a>
+                <a href="/combat.php" class="btn btn-secondary">My Combat</a>
                 <?php if (isAdmin()): ?>
                     <a href="/admin/guild-settings.php" class="btn btn-secondary">Guild Settings</a>
                     <a href="/admin/" class="btn btn-danger">Admin Panel</a>
