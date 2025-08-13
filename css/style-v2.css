@@ -94,6 +94,10 @@ a:hover {
     align-items: center;
     gap: 1.5rem;
 }
+.nav-user .feedback-links {
+    display: flex;
+    gap: 0.5rem;
+}
 
 .user-avatar {
     width: 32px;
