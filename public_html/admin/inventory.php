@@ -14,9 +14,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     try {
         if ($_POST['action'] === 'update_resource') {
             $resource_id = (int)($_POST['resource_id'] ?? 0);
-            $current_stock = isset($_POST['current_stock']) ? (float)$_POST['current_stock'] : null;
+            $raw = $_POST['current_stock'] ?? null;
+            if ($raw !== null) { $raw = str_replace([',', ' '], '', (string)$raw); }
+            $current_stock = ($raw !== null && $raw !== '') ? (float)$raw : null;
             if ($resource_id > 0 && $current_stock !== null) {
-                $stmt = $db->prepare("UPDATE resources SET current_stock = ?, updated_at = NOW() WHERE id = ?");
+                $stmt = $db->prepare("UPDATE resources SET current_stock = ? WHERE id = ?");
                 $stmt->execute([$current_stock, $resource_id]);
                 $message = 'Inventory updated.';
                 $message_type = 'success';
