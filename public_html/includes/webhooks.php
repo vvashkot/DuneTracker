@@ -103,6 +103,62 @@ function sendDiscordWebhook($event_type, $embed_data, $content = null) {
 }
 
 /**
+ * Send a direct message to a Discord user via Bot token (optional)
+ * Requires DISCORD_BOT_TOKEN and user ID. Bot must share a server with the user.
+ */
+function sendDiscordDM($user_id, $embed_data, $content = null) {
+    if (!defined('DISCORD_BOT_TOKEN') || !DISCORD_BOT_TOKEN || !$user_id) return 0;
+    $token = DISCORD_BOT_TOKEN;
+    // 1) Create (or fetch) DM channel
+    $ch = curl_init('https://discord.com/api/v10/users/@me/channels');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => 1,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bot ' . $token,
+            'Content-Type: application/json'
+        ],
+        CURLOPT_POSTFIELDS => json_encode(['recipient_id' => (string)$user_id]),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    if ($code < 200 || $code >= 300) {
+        error_log('Discord DM channel create failed: ' . ($err ?: $resp));
+        return 0;
+    }
+    $data = json_decode($resp, true);
+    $channel_id = $data['id'] ?? null;
+    if (!$channel_id) return 0;
+    // 2) Send message
+    $payload = [];
+    if ($content) $payload['content'] = $content;
+    if ($embed_data) $payload['embeds'] = [ $embed_data ];
+    $ch = curl_init('https://discord.com/api/v10/channels/' . $channel_id . '/messages');
+    curl_setopt_array($ch, [
+        CURLOPT_POST => 1,
+        CURLOPT_HTTPHEADER => [
+            'Authorization: Bot ' . $token,
+            'Content-Type: application/json'
+        ],
+        CURLOPT_POSTFIELDS => json_encode($payload),
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 10,
+    ]);
+    $resp = curl_exec($ch);
+    $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $err  = curl_error($ch);
+    curl_close($ch);
+    if ($code < 200 || $code >= 300) {
+        error_log('Discord DM send failed: ' . ($err ?: $resp));
+        return 0;
+    }
+    return 1;
+}
+
+/**
  * Get color for event type
  */
 function getEventColor($event_type) {
@@ -349,7 +405,11 @@ function notifyFeatureRequest($user, $title, $description, $image_url = null) {
         ]
     ];
     if ($image_url) { $embed['image'] = ['url' => $image_url]; }
-    return sendDiscordWebhook('feature_request', $embed);
+    $sent = sendDiscordWebhook('feature_request', $embed);
+    if (defined('DISCORD_DM_USER_ID') && DISCORD_DM_USER_ID) {
+        $sent += sendDiscordDM(DISCORD_DM_USER_ID, $embed, null);
+    }
+    return $sent;
 }
 
 function notifyBugReport($user, $title, $description, $image_url = null) {
@@ -363,5 +423,9 @@ function notifyBugReport($user, $title, $description, $image_url = null) {
         'color' => 15158332
     ];
     if ($image_url) { $embed['image'] = ['url' => $image_url]; }
-    return sendDiscordWebhook('bug_report', $embed);
+    $sent = sendDiscordWebhook('bug_report', $embed);
+    if (defined('DISCORD_DM_USER_ID') && DISCORD_DM_USER_ID) {
+        $sent += sendDiscordDM(DISCORD_DM_USER_ID, $embed, null);
+    }
+    return $sent;
 }

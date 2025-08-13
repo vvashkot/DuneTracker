@@ -57,3 +57,7 @@ if (!defined('OPENAI_API_KEY')) {
     // You can set this constant here, or place it in config.local.php, or use the env var OPENAI_API_KEY
     define('OPENAI_API_KEY', null);
 }
+
+// Optional Discord Bot settings for DM notifications
+if (!defined('DISCORD_BOT_TOKEN')) { define('DISCORD_BOT_TOKEN', null); }
+if (!defined('DISCORD_DM_USER_ID')) { define('DISCORD_DM_USER_ID', null); }
