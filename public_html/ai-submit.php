@@ -12,6 +12,8 @@ $parsed = null;
 $items = [];
 $resolvedParticipants = [];
 $shares = [];
+$refined = [];
+$refinery_note = '';
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
@@ -233,6 +235,30 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 // Resolve resources now so review shows canonical names
                 $items = array_map('resolveResource', $items);
+
+                // Compute refined outputs from inputs (Spice→Melange; Stravidium+Titanium→Plastanium)
+                $totals = ['spice'=>0, 'titanium'=>0, 'stravidium'=>0];
+                foreach ($items as $it) {
+                    $n = normalizeResourceName((string)($it['resource_name'] ?? ''));
+                    $q = (int)($it['quantity'] ?? 0);
+                    if (isset($totals[$n])) $totals[$n] += $q;
+                }
+                $discounted = stripos($freeform, 'discount') !== false || stripos($freeform, '7,500') !== false;
+                if ($totals['spice'] > 0) {
+                    $per = $discounted ? 7500 : 10000;
+                    $units = intdiv($totals['spice'], $per);
+                    $mel = $units * 200;
+                    if ($mel > 0) {
+                        $refined[] = resolveResource(['resource_name'=>'melange', 'quantity'=>$mel, 'notes'=> $discounted ? 'Discounted refinery' : 'Standard refinery']);
+                        $refinery_note = $discounted ? '(discounted 7,500→200)' : '(10,000→200)';
+                    }
+                }
+                if ($totals['titanium'] > 0 || $totals['stravidium'] > 0) {
+                    $units = min(intdiv((int)$totals['stravidium'], 3), intdiv((int)$totals['titanium'], 4));
+                    if ($units > 0) {
+                        $refined[] = resolveResource(['resource_name'=>'plastanium', 'quantity'=>$units, 'notes'=>'3 Stravidium + 4 Titanium → 1 Plastanium']);
+                    }
+                }
                 $names = [];
                 if (!empty($parsed['participants']) && is_array($parsed['participants'])) {
                     $names = $parsed['participants'];
@@ -412,6 +438,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <?php endforeach; ?>
           </tbody></table>
         </div>
+        <?php if (!empty($refined)): ?>
+        <div class="table-responsive" style="margin-top:1rem;">
+          <h4>Refined Outputs <?php echo htmlspecialchars($refinery_note); ?></h4>
+          <table class="data-table"><thead><tr><th>Output</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>
+            <?php foreach ($refined as $it): ?>
+              <tr>
+                <td><?php echo htmlspecialchars((string)($it['resolved_name'] ?? ($it['resource_name'] ?? ''))); ?></td>
+                <td class="quantity"><?php echo number_format((int)($it['quantity'] ?? 0)); ?></td>
+                <td><?php echo htmlspecialchars((string)($it['notes'] ?? '')); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody></table>
+        </div>
+        <?php endif; ?>
         <?php if (!empty($resolvedParticipants)): ?>
           <div style="margin:0.75rem 0; color:var(--text-secondary);">
             Participants: <?php echo htmlspecialchars(implode(', ', array_map(fn($p) => $p['name'], $resolvedParticipants))); ?>
@@ -430,6 +470,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <input type="hidden" name="items_json" value='<?php echo json_encode($items); ?>'>
           <input type="hidden" name="participants_json" value='<?php echo json_encode(array_map(fn($p)=>$p['name'], $resolvedParticipants)); ?>'>
           <input type="hidden" name="shares_json" value='<?php echo json_encode($shares); ?>'>
+          <input type="hidden" name="refined_json" value='<?php echo json_encode($refined); ?>'>
+          <?php if (!empty($refined)): ?>
+          <label style="display:inline-flex; align-items:center; gap:0.5rem; margin-right:1rem;">
+            <input type="checkbox" name="save_refined" value="1" checked> Save refined outputs too
+          </label>
+          <?php endif; ?>
           <button class="btn btn-success" type="submit">Confirm & Save</button>
         </form>
       </div>
