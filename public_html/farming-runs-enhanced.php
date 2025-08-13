@@ -293,6 +293,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             <div class="nav-user">
                 <img src="<?php echo htmlspecialchars(getAvatarUrl($user)); ?>" alt="Avatar" class="user-avatar">
                 <span class="user-name"><?php echo htmlspecialchars($user['username']); ?></span>
+                <div class="feedback-links">
+                    <a href="/feedback.php?type=feature" class="btn btn-secondary btn-sm">Submit Feature</a>
+                    <a href="/feedback.php?type=bug" class="btn btn-secondary btn-sm">Submit Bug</a>
+                </div>
                 <a href="/logout.php" class="btn btn-secondary">Logout</a>
             </div>
         </div>
@@ -599,21 +603,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     </div>
                     <div class="alert alert-info" id="multi-note" style="margin-top:0.5rem;"></div>
 
-                    <form method="POST" style="margin-top:1rem;">
+                    <form method="POST" action="/multi-run-persist.php" style="margin-top:1rem;">
                         <?php echo csrfField(); ?>
-                        <input type="hidden" name="action" value="persist_distribution">
                         <input type="hidden" name="algo" id="multi-persist-algo" value="weighted_across_runs">
                         <input type="hidden" name="discounted" id="multi-persist-discounted" value="0">
+                        <input type="hidden" name="run_ids" id="multi-persist-run-ids" value="">
                         <label style="display:inline-flex; align-items:center; gap:0.5rem;">
-                            <input type="checkbox" name="override" value="1"> Override existing distribution
+                            <input type="checkbox" name="override" value="1"> Override existing distributions
                         </label>
-                        <span style="margin-left:1rem; color:var(--text-secondary); font-size:0.9rem;">Persist to which run?</span>
-                        <select name="persist_run_id" class="form-control" style="min-width:200px;">
-                            <?php foreach ($allActive as $r): ?>
-                                <option value="<?php echo $r['id']; ?>"><?php echo htmlspecialchars($r['name']); ?></option>
-                            <?php endforeach; ?>
-                        </select>
-                        <button type="submit" class="btn btn-success">Persist Distribution</button>
+                        <button type="submit" class="btn btn-success">Persist to Selected Runs</button>
                     </form>
                 </div>
             </div>
@@ -664,6 +662,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 // set hidden inputs for persist
                 document.getElementById('multi-persist-algo').value = algo;
                 document.getElementById('multi-persist-discounted').value = discounted ? '1' : '0';
+                document.getElementById('multi-persist-run-ids').value = runIds;
               })
               .catch(() => alert('Failed to preview'));
         }

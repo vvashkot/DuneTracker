@@ -148,6 +148,10 @@ foreach ($roster_all as $r) {
       <div class="nav-user">
         <img src="<?php echo htmlspecialchars(getAvatarUrl($user)); ?>" class="user-avatar" alt="Avatar">
         <span class="user-name"><?php echo htmlspecialchars($user['username']); ?></span>
+        <div class="feedback-links">
+          <a href="/feedback.php?type=feature" class="btn btn-secondary btn-sm">Submit Feature</a>
+          <a href="/feedback.php?type=bug" class="btn btn-secondary btn-sm">Submit Bug</a>
+        </div>
         <a href="/logout.php" class="btn btn-secondary">Logout</a>
       </div>
     </div>

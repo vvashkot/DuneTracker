@@ -377,6 +377,10 @@ try {
             <div class="nav-user">
                 <img src="<?php echo htmlspecialchars(getAvatarUrl($user)); ?>" alt="Avatar" class="user-avatar">
                 <span class="user-name"><?php echo htmlspecialchars($user['username']); ?></span>
+                <div class="feedback-links">
+                  <a href="/feedback.php?type=feature" class="btn btn-secondary btn-sm">Submit Feature</a>
+                  <a href="/feedback.php?type=bug" class="btn btn-secondary btn-sm">Submit Bug</a>
+                </div>
                 <a href="/settings.php" class="btn btn-secondary">Settings</a>
                 <a href="/logout.php" class="btn btn-secondary">Logout</a>
             </div>

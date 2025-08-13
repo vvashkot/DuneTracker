@@ -16,6 +16,8 @@ const WEBHOOK_EVENTS = [
     'large_contribution' => 'Large Contribution Made',
     'low_resource_alert' => 'Low Resource Alert',
     'admin_adjustment' => 'Admin Resource Adjustment',
+    'feature_request' => 'Feature Request',
+    'bug_report' => 'Bug Report',
 ];
 
 /**
@@ -335,4 +337,31 @@ function notifyAdminAdjustment($admin, $resource, $adjustment, $reason) {
     ];
     
     return sendDiscordWebhook('admin_adjustment', $embed);
+}
+
+function notifyFeatureRequest($user, $title, $description, $image_url = null) {
+    $embed = [
+        'title' => '🧩 Feature Request',
+        'description' => $description,
+        'fields' => [
+            ['name' => 'From', 'value' => COALESCE($user['in_game_name'] ?? null, $user['username']), 'inline' => true],
+            ['name' => 'Title', 'value' => $title, 'inline' => false],
+        ]
+    ];
+    if ($image_url) { $embed['image'] = ['url' => $image_url]; }
+    return sendDiscordWebhook('feature_request', $embed);
+}
+
+function notifyBugReport($user, $title, $description, $image_url = null) {
+    $embed = [
+        'title' => '🐞 Bug Report',
+        'description' => $description,
+        'fields' => [
+            ['name' => 'From', 'value' => COALESCE($user['in_game_name'] ?? null, $user['username']), 'inline' => true],
+            ['name' => 'Title', 'value' => $title, 'inline' => false],
+        ],
+        'color' => 15158332
+    ];
+    if ($image_url) { $embed['image'] = ['url' => $image_url]; }
+    return sendDiscordWebhook('bug_report', $embed);
 }
