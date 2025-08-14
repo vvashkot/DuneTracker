@@ -43,7 +43,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['type'])) {
             $message_type = 'success';
         } catch (Throwable $e) {
             error_log('Feedback submit failed: ' . $e->getMessage());
-            $message = 'Failed to submit feedback.';
+            $message = 'Failed to submit feedback. Please ask an admin to check logs.';
             $message_type = 'error';
         }
     }
