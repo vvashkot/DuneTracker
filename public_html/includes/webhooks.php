@@ -396,11 +396,12 @@ function notifyAdminAdjustment($admin, $resource, $adjustment, $reason) {
 }
 
 function notifyFeatureRequest($user, $title, $description, $image_url = null) {
+    $fromName = ($user['in_game_name'] ?? '') ? $user['in_game_name'] : $user['username'];
     $embed = [
         'title' => '🧩 Feature Request',
         'description' => $description,
         'fields' => [
-            ['name' => 'From', 'value' => COALESCE($user['in_game_name'] ?? null, $user['username']), 'inline' => true],
+            ['name' => 'From', 'value' => $fromName, 'inline' => true],
             ['name' => 'Title', 'value' => $title, 'inline' => false],
         ]
     ];
@@ -413,11 +414,12 @@ function notifyFeatureRequest($user, $title, $description, $image_url = null) {
 }
 
 function notifyBugReport($user, $title, $description, $image_url = null) {
+    $fromName = ($user['in_game_name'] ?? '') ? $user['in_game_name'] : $user['username'];
     $embed = [
         'title' => '🐞 Bug Report',
         'description' => $description,
         'fields' => [
-            ['name' => 'From', 'value' => COALESCE($user['in_game_name'] ?? null, $user['username']), 'inline' => true],
+            ['name' => 'From', 'value' => $fromName, 'inline' => true],
             ['name' => 'Title', 'value' => $title, 'inline' => false],
         ],
         'color' => 15158332
