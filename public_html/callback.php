@@ -7,6 +7,16 @@
 require_once 'includes/config-loader.php';
 require_once 'includes/auth.php';
 
+// Enforce canonical host to match DISCORD_REDIRECT_URI
+$currentHost = $_SERVER['HTTP_HOST'] ?? '';
+$redirectHost = parse_url(DISCORD_REDIRECT_URI, PHP_URL_HOST);
+if ($redirectHost && strcasecmp($currentHost, $redirectHost) !== 0) {
+    $scheme = 'https';
+    $target = $scheme . '://' . $redirectHost . '/callback.php';
+    header('Location: ' . $target);
+    exit();
+}
+
 // Check for error from Discord
 if (isset($_GET['error'])) {
     die('Discord OAuth error: ' . htmlspecialchars($_GET['error_description'] ?? $_GET['error']));

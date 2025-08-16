@@ -6,6 +6,16 @@
 require_once 'includes/config-loader.php';
 require_once 'includes/auth.php';
 
+// Enforce canonical host to match DISCORD_REDIRECT_URI
+$currentHost = $_SERVER['HTTP_HOST'] ?? '';
+$redirectHost = parse_url(DISCORD_REDIRECT_URI, PHP_URL_HOST);
+if ($redirectHost && strcasecmp($currentHost, $redirectHost) !== 0) {
+    $scheme = 'https';
+    $target = $scheme . '://' . $redirectHost . '/login.php' . (isset($_GET['show_page']) ? '?show_page=1' : '');
+    header('Location: ' . $target);
+    exit();
+}
+
 // If already logged in, redirect to dashboard
 if (isLoggedIn()) {
     header('Location: /index.php');
