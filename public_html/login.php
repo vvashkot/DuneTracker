@@ -26,6 +26,23 @@ if (isLoggedIn()) {
 $state = bin2hex(random_bytes(16));
 $_SESSION['oauth_state'] = $state;
 
+// Also set a short-lived secure cookie as a fallback for environments where the
+// session cookie is lost during the OAuth redirect. We'll verify either.
+$cookieHost = parse_url(DISCORD_REDIRECT_URI, PHP_URL_HOST) ?: ($_SERVER['HTTP_HOST'] ?? '');
+$cookieDomain = $cookieHost && strpos($cookieHost, '.') !== false ? '.' . $cookieHost : '';
+setcookie(
+    'oauth_state',
+    $state,
+    [
+        'expires' => time() + 600,
+        'path' => '/',
+        'domain' => $cookieDomain,
+        'secure' => true,
+        'httponly' => true,
+        'samesite' => 'None',
+    ]
+);
+
 // Build Discord OAuth URL
 $params = [
     'client_id' => DISCORD_CLIENT_ID,

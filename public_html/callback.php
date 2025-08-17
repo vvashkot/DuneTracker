@@ -22,13 +22,24 @@ if (isset($_GET['error'])) {
     die('Discord OAuth error: ' . htmlspecialchars($_GET['error_description'] ?? $_GET['error']));
 }
 
-// Verify state parameter
-if (!isset($_GET['state']) || !isset($_SESSION['oauth_state']) || $_GET['state'] !== $_SESSION['oauth_state']) {
+// Verify state parameter from session OR fallback cookie
+$receivedState = $_GET['state'] ?? '';
+$sessionState = $_SESSION['oauth_state'] ?? '';
+$cookieState = $_COOKIE['oauth_state'] ?? '';
+if (!$receivedState || !hash_equals($receivedState, $sessionState ?: $cookieState)) {
+    // Defensive cleanup
+    unset($_SESSION['oauth_state']);
+    if (isset($_COOKIE['oauth_state'])) {
+        setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
+    }
     die('Invalid state parameter. Please try logging in again.');
 }
 
-// Clear the state from session
+// Clear the state from session and cookie
 unset($_SESSION['oauth_state']);
+if (isset($_COOKIE['oauth_state'])) {
+    setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
+}
 
 // Check for authorization code
 if (!isset($_GET['code'])) {
@@ -127,6 +138,11 @@ if (REQUIRED_GUILD_ID !== null) {
 
 // Login the user
 loginUser($discord_user);
+
+// Regenerate session ID after authentication to prevent fixation
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_regenerate_id(true);
+}
 
 // Redirect to originally requested page or dashboard
 $redirect_to = $_SESSION['redirect_after_login'] ?? '/index.php';
