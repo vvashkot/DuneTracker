@@ -40,6 +40,12 @@ if ($receivedState) {
 // Optional development bypass: if we already fetched the Discord user and their ID is in bypass list,
 // we will skip state failure (only if $STATE_BYPASS_USER_IDS is configured and non-empty).
 if (!$receivedState || !$validState) {
+    // Debug log
+    error_log('[OAuthState] FAIL received=' . substr($receivedState,0,8) . '... ' .
+              'sess=' . substr((string)$sessionState,0,8) . '... ' .
+              'cookie=' . substr((string)$cookieState,0,8) . '... ' .
+              'pool=' . count($sessionStatePool) . ' ua=' . ($_SERVER['HTTP_USER_AGENT'] ?? 'n/a') .
+              ' ip=' . ($_SERVER['REMOTE_ADDR'] ?? 'n/a'));
     // Attempt a controlled bypass for whitelisted users
     $bypassIds = $STATE_BYPASS_USER_IDS ?? [];
     $codeBypass = $_GET['code'] ?? null;
@@ -81,11 +87,21 @@ if (!$receivedState || !$validState) {
                 if ($user_http_code_tmp === 200) {
                     $discord_user_tmp = json_decode($user_response_tmp, true);
                     if (isset($discord_user_tmp['id']) && in_array($discord_user_tmp['id'], $bypassIds, true)) {
+                        error_log('[OAuthState] BYPASS user=' . $discord_user_tmp['id']);
                         // Clear states
                         unset($_SESSION['oauth_state']);
                         unset($_SESSION['oauth_states']);
+                        $cookieHost = parse_url(DISCORD_REDIRECT_URI, PHP_URL_HOST) ?: ($_SERVER['HTTP_HOST'] ?? '');
+                        $cookieDomain = $cookieHost && strpos($cookieHost, '.') !== false ? '.' . $cookieHost : '';
                         if (isset($_COOKIE['oauth_state'])) {
-                            setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
+                            setcookie('oauth_state', '', [
+                                'expires' => time() - 3600,
+                                'path' => '/',
+                                'domain' => $cookieDomain,
+                                'secure' => true,
+                                'httponly' => true,
+                                'samesite' => 'None',
+                            ]);
                         }
                         // Login and redirect
                         loginUser($discord_user_tmp);

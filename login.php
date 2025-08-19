@@ -48,6 +48,8 @@ setcookie('oauth_state', $state, [
     'httponly' => true,
     'samesite' => 'None',
 ]);
+// Log issuance of state for debugging stubborn cases
+error_log('[OAuthState] ISSUE ' . substr($state,0,8) . '... ' . 'ua=' . ($_SERVER['HTTP_USER_AGENT'] ?? 'n/a') . ' ip=' . ($_SERVER['REMOTE_ADDR'] ?? 'n/a'));
 
 // Build Discord OAuth URL
 $params = [
