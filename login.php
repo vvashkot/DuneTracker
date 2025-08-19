@@ -22,26 +22,32 @@ if (isLoggedIn()) {
     exit();
 }
 
-// Generate state parameter for OAuth security
+// Generate state parameter for OAuth security (keep a short history to avoid multi-tab races)
 $state = bin2hex(random_bytes(16));
+if (!isset($_SESSION['oauth_states']) || !is_array($_SESSION['oauth_states'])) {
+    $_SESSION['oauth_states'] = [];
+}
+$_SESSION['oauth_states'][] = ['v' => $state, 't' => time()];
+// Keep only the last 5 states within 10 minutes
+$_SESSION['oauth_states'] = array_values(array_filter(
+    array_slice($_SESSION['oauth_states'], -5),
+    function ($s) { return isset($s['t']) && (time() - (int)$s['t']) < 600; }
+));
+// Also keep a single latest copy for backward-compat reads
 $_SESSION['oauth_state'] = $state;
 
 // Also set a short-lived secure cookie as a fallback for environments where the
 // session cookie is lost during the OAuth redirect. We'll verify either.
 $cookieHost = parse_url(DISCORD_REDIRECT_URI, PHP_URL_HOST) ?: ($_SERVER['HTTP_HOST'] ?? '');
 $cookieDomain = $cookieHost && strpos($cookieHost, '.') !== false ? '.' . $cookieHost : '';
-setcookie(
-    'oauth_state',
-    $state,
-    [
-        'expires' => time() + 600,
-        'path' => '/',
-        'domain' => $cookieDomain,
-        'secure' => true,
-        'httponly' => true,
-        'samesite' => 'None',
-    ]
-);
+setcookie('oauth_state', $state, [
+    'expires' => time() + 600,
+    'path' => '/',
+    'domain' => $cookieDomain,
+    'secure' => true,
+    'httponly' => true,
+    'samesite' => 'None',
+]);
 
 // Build Discord OAuth URL
 $params = [
