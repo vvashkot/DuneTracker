@@ -26,7 +26,18 @@ if (isset($_GET['error'])) {
 $receivedState = $_GET['state'] ?? '';
 $sessionState = $_SESSION['oauth_state'] ?? '';
 $cookieState = $_COOKIE['oauth_state'] ?? '';
-if (!$receivedState || !hash_equals($receivedState, $sessionState ?: $cookieState)) {
+$sessionStatePool = array_map(function ($s) { return $s['v'] ?? ''; }, $_SESSION['oauth_states'] ?? []);
+$validState = false;
+if ($receivedState) {
+    if ($sessionState && hash_equals($receivedState, $sessionState)) { $validState = true; }
+    if (!$validState && $cookieState && hash_equals($receivedState, $cookieState)) { $validState = true; }
+    if (!$validState && !empty($sessionStatePool)) {
+        foreach ($sessionStatePool as $sv) {
+            if ($sv && hash_equals($receivedState, $sv)) { $validState = true; break; }
+        }
+    }
+}
+if (!$receivedState || !$validState) {
     // Defensive cleanup
     unset($_SESSION['oauth_state']);
     if (isset($_COOKIE['oauth_state'])) {
@@ -37,6 +48,7 @@ if (!$receivedState || !hash_equals($receivedState, $sessionState ?: $cookieStat
 
 // Clear the state from session and cookie
 unset($_SESSION['oauth_state']);
+unset($_SESSION['oauth_states']);
 if (isset($_COOKIE['oauth_state'])) {
     setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
 }
