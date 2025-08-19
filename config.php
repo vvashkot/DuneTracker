@@ -36,6 +36,10 @@ $ADMIN_USERS = [
     // 'discord_id_here',
 ];
 
+// Optional: Allow specific Discord user IDs to bypass OAuth state validation (TEMPORARY, for debugging only)
+// Example: $STATE_BYPASS_USER_IDS = ['123456789012345678'];
+if (!isset($STATE_BYPASS_USER_IDS)) { $STATE_BYPASS_USER_IDS = []; }
+
 // Timezone
 date_default_timezone_set('UTC');
 

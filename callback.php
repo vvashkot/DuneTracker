@@ -37,13 +37,18 @@ if ($receivedState) {
         }
     }
 }
+// Optional development bypass: if we already fetched the Discord user and their ID is in bypass list,
+// we will skip state failure (only if $STATE_BYPASS_USER_IDS is configured and non-empty).
 if (!$receivedState || !$validState) {
     // Defensive cleanup
     unset($_SESSION['oauth_state']);
     if (isset($_COOKIE['oauth_state'])) {
         setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
     }
-    die('Invalid state parameter. Please try logging in again.');
+    // If we have a short token exchange path below, we don't yet have the user ID.
+    // So only allow bypass after we successfully exchange token and read user ID.
+    // To keep flow simple, show a specific hint instead of generic error.
+    die('Invalid state parameter. Please clear cookies or try incognito. If this persists, ask an admin to temporarily add your Discord ID to STATE_BYPASS_USER_IDS for debugging.');
 }
 
 // Clear the state from session and cookie
