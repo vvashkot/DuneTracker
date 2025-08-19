@@ -40,14 +40,73 @@ if ($receivedState) {
 // Optional development bypass: if we already fetched the Discord user and their ID is in bypass list,
 // we will skip state failure (only if $STATE_BYPASS_USER_IDS is configured and non-empty).
 if (!$receivedState || !$validState) {
-    // Defensive cleanup
+    // Attempt a controlled bypass for whitelisted users
+    $bypassIds = $STATE_BYPASS_USER_IDS ?? [];
+    $codeBypass = $_GET['code'] ?? null;
+    if (!empty($bypassIds) && $codeBypass) {
+        // Exchange code for access token
+        $token_url = 'https://discord.com/api/oauth2/token';
+        $token_data = [
+            'client_id' => DISCORD_CLIENT_ID,
+            'client_secret' => DISCORD_CLIENT_SECRET,
+            'grant_type' => 'authorization_code',
+            'code' => $codeBypass,
+            'redirect_uri' => DISCORD_REDIRECT_URI
+        ];
+
+        $curl = curl_init($token_url);
+        curl_setopt($curl, CURLOPT_POST, true);
+        curl_setopt($curl, CURLOPT_POSTFIELDS, http_build_query($token_data));
+        curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($curl, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/x-www-form-urlencoded'
+        ]);
+        $token_response = curl_exec($curl);
+        $token_http_code = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+        curl_close($curl);
+
+        if ($token_http_code === 200) {
+            $token_info_tmp = json_decode($token_response, true);
+            if (isset($token_info_tmp['access_token'])) {
+                // Fetch user
+                $user_url = 'https://discord.com/api/users/@me';
+                $curl = curl_init($user_url);
+                curl_setopt($curl, CURLOPT_RETURNTRANSFER, true);
+                curl_setopt($curl, CURLOPT_HTTPHEADER, [
+                    'Authorization: Bearer ' . $token_info_tmp['access_token']
+                ]);
+                $user_response_tmp = curl_exec($curl);
+                $user_http_code_tmp = curl_getinfo($curl, CURLINFO_HTTP_CODE);
+                curl_close($curl);
+                if ($user_http_code_tmp === 200) {
+                    $discord_user_tmp = json_decode($user_response_tmp, true);
+                    if (isset($discord_user_tmp['id']) && in_array($discord_user_tmp['id'], $bypassIds, true)) {
+                        // Clear states
+                        unset($_SESSION['oauth_state']);
+                        unset($_SESSION['oauth_states']);
+                        if (isset($_COOKIE['oauth_state'])) {
+                            setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
+                        }
+                        // Login and redirect
+                        loginUser($discord_user_tmp);
+                        if (session_status() === PHP_SESSION_ACTIVE) {
+                            session_regenerate_id(true);
+                        }
+                        $redirect_to = $_SESSION['redirect_after_login'] ?? '/index.php';
+                        unset($_SESSION['redirect_after_login']);
+                        header('Location: ' . $redirect_to);
+                        exit();
+                    }
+                }
+            }
+        }
+    }
+
+    // Defensive cleanup then fail
     unset($_SESSION['oauth_state']);
     if (isset($_COOKIE['oauth_state'])) {
         setcookie('oauth_state', '', time() - 3600, '/', '', true, true);
     }
-    // If we have a short token exchange path below, we don't yet have the user ID.
-    // So only allow bypass after we successfully exchange token and read user ID.
-    // To keep flow simple, show a specific hint instead of generic error.
     die('Invalid state parameter. Please clear cookies or try incognito. If this persists, ask an admin to temporarily add your Discord ID to STATE_BYPASS_USER_IDS for debugging.');
 }
 
