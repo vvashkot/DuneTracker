@@ -14,13 +14,17 @@ $resolvedParticipants = [];
 $shares = [];
 $refined = [];
 $refinery_note = '';
+$landsraad = [];
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
     if (!$apiKey) throw new Exception('Missing OPENAI_API_KEY');
     $url = 'https://api.openai.com/v1/chat/completions';
     $system = 'Extract structured data for a guild resource tracker. '
-            . 'Return ONLY JSON with keys: items (array of {resource_name, quantity, notes?}), participants (array of strings), target (personal|group|run), split (equal|weighted|none), shares (object mapping participant name to fraction between 0 and 1; only if split is weighted), run_hint?. '
+            . 'Return ONLY JSON with keys: '
+            . 'items (array of {resource_name, quantity, notes?}), '
+            . 'participants (array of strings), target (personal|group|run), split (equal|weighted|none), shares (object mapping participant name to fraction between 0 and 1; only if split is weighted), run_hint?, '
+            . 'landsraad (array of entries, each {house?, item_name?, quantity?, points_per_unit?, bonus_pct?, total_points?, notes?}). '
             . 'Infer integers; keep resource_name concise (matchable). If names in parentheses like (Cap/Kes/Vva) are present, output participants split by /. '
             . 'If text contains patterns like "split by Cap 50%, Kes 30%, Vva 20%" or similar, set split="weighted" and shares to {"Cap":0.5,"Kes":0.3,"Vva":0.2} (normalized to sum 1). Otherwise set split="equal" when participants are provided without explicit weights.';
     $userMsg = 'Text: ' . $text . "\nRespond with JSON only.";
@@ -269,6 +273,71 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 } elseif (!empty($parsed['shares']) && is_object($parsed['shares'])) {
                     $shares = (array)$parsed['shares'];
                 }
+                // Landsraad parsing
+                $landsraad = [];
+                if (!empty($parsed['landsraad']) && is_array($parsed['landsraad'])) {
+                    foreach ($parsed['landsraad'] as $lr) {
+                        $house = trim((string)($lr['house'] ?? ''));
+                        $itemName = trim((string)($lr['item_name'] ?? ''));
+                        $qty = isset($lr['quantity']) ? (int)$lr['quantity'] : 0;
+                        $ppu = isset($lr['points_per_unit']) ? (int)$lr['points_per_unit'] : 0;
+                        $bonus = isset($lr['bonus_pct']) ? (float)$lr['bonus_pct'] : 0.0;
+                        $total = isset($lr['total_points']) ? (int)$lr['total_points'] : 0;
+                        $note = trim((string)($lr['notes'] ?? ''));
+
+                        // Resolve landsraad item if provided
+                        $itemId = null; $createItem = false;
+                        if ($itemName !== '') {
+                            $stmt = $db->prepare("SELECT id, points_per_unit FROM landsraad_items WHERE active=1 AND LOWER(name)=LOWER(?) LIMIT 1");
+                            $stmt->execute([$itemName]);
+                            $row = $stmt->fetch();
+                            if ($row) {
+                                $itemId = (int)$row['id'];
+                                if ($ppu <= 0 && isset($row['points_per_unit'])) { $ppu = (int)$row['points_per_unit']; }
+                            } else {
+                                // Will create on save if ppu>0
+                                $createItem = true;
+                            }
+                        }
+
+                        if ($total <= 0) {
+                            if ($qty > 0 && $ppu > 0) {
+                                $total = (int)floor($qty * $ppu * (1 + ($bonus/100.0)));
+                            }
+                        }
+                        $landsraad[] = [
+                            'house' => $house,
+                            'item_name' => $itemName,
+                            'item_id' => $itemId,
+                            'create_item' => $createItem ? 1 : 0,
+                            'quantity' => $qty,
+                            'points_per_unit' => $ppu,
+                            'bonus_pct' => $bonus,
+                            'total_points' => $total,
+                            'notes' => $note,
+                        ];
+                    }
+                } else {
+                    // Heuristic: direct landsraad points line e.g., "I contributed 10,500 points to the landsraad this week for House Alexis"
+                    if (preg_match('/(\d[\d,]*)\s*points?\s+to\s+the\s+landsraad/i', $freeform, $m)) {
+                        $p = (int)str_replace(',', '', $m[1]);
+                        $house = '';
+                        if (preg_match('/for\s+House\s+([A-Za-z0-9\- ]+)/i', $freeform, $hm)) {
+                            $house = trim($hm[1]);
+                        }
+                        $landsraad[] = [
+                            'house' => $house,
+                            'item_name' => '',
+                            'item_id' => null,
+                            'create_item' => 0,
+                            'quantity' => 0,
+                            'points_per_unit' => 0,
+                            'bonus_pct' => 0,
+                            'total_points' => $p,
+                            'notes' => 'Direct points',
+                        ];
+                    }
+                }
             } catch (Throwable $e) {
                 error_log('AI analyze error: ' . $e->getMessage());
                 $message = 'AI failed to analyze input.';
@@ -308,7 +377,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $rawItems = json_decode($_POST['items_json'] ?? '[]', true) ?: [];
         $rawParticipants = json_decode($_POST['participants_json'] ?? '[]', true) ?: [];
         $rawShares = json_decode($_POST['shares_json'] ?? 'null', true);
-        if (empty($rawItems)) {
+        $landsraadRaw = json_decode($_POST['landsraad_json'] ?? '[]', true) ?: [];
+        if (empty($rawItems) && empty($landsraadRaw)) {
             $message = 'Nothing to save.';
             $message_type = 'error';
         } else {
@@ -368,6 +438,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         addContribution($user['db_id'], (int)$rid, $qty, $notes ?: null);
                     }
                 }
+                // Save Landsraad entries
+                foreach ($landsraadRaw as $lr) {
+                    $house = trim((string)($lr['house'] ?? ''));
+                    $itemName = trim((string)($lr['item_name'] ?? ''));
+                    $itemId = isset($lr['item_id']) && $lr['item_id'] ? (int)$lr['item_id'] : null;
+                    $createItem = !empty($lr['create_item']);
+                    $qty = (int)($lr['quantity'] ?? 0);
+                    $ppu = (int)($lr['points_per_unit'] ?? 0);
+                    $bonus = (float)($lr['bonus_pct'] ?? 0);
+                    $total = (int)($lr['total_points'] ?? 0);
+                    $notes = trim((string)($lr['notes'] ?? ''));
+                    if ($total <= 0 && $qty > 0 && $ppu > 0) {
+                        $total = (int)floor($qty * $ppu * (1 + ($bonus/100.0)));
+                    }
+                    if ($itemId === null && $createItem && $itemName !== '' && $ppu > 0) {
+                        $stmt = $db->prepare("INSERT INTO landsraad_items (name, points_per_unit, created_by) VALUES (?, ?, ?)");
+                        $stmt->execute([$itemName, $ppu, $user['db_id']]);
+                        $itemId = (int)$db->lastInsertId();
+                    }
+                    if ($total > 0) {
+                        $category = $house ? ('House: ' . $house) : null;
+                        $noteFull = trim(($notes ? ($notes . ' | ') : '')
+                            . ($itemName !== '' ? ('Item: ' . $itemName . ', ') : '')
+                            . ($qty > 0 ? ('Qty: ' . $qty . ', ') : '')
+                            . ($ppu > 0 ? ('PPU: ' . $ppu . ', ') : '')
+                            . ($bonus > 0 ? ('Bonus%: ' . $bonus) : ''));
+                        $stmt = $db->prepare("INSERT INTO landsraad_points (user_id, points, category, occurred_at, notes) VALUES (?, ?, ?, NOW(), ?)");
+                        $stmt->execute([$user['db_id'], $total, $category, $noteFull ?: null]);
+                    }
+                }
                 $message = 'Submission saved.';
                 $message_type = 'success';
             } catch (Throwable $e) {
@@ -416,7 +516,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 
     <div class="card">
       <h3>Quick Add</h3>
-      <p style="color:var(--text-secondary); font-size:0.9rem;">Describe what you want to log, e.g. “Added 10,000 Spice to the guild” or “Logged 5 filters to hub”.</p>
+      <p style="color:var(--text-secondary); font-size:0.9rem;">Describe what you want to log, e.g. “Added 10,000 Spice to the guild”, “Logged 5 filters to hub”, or “I contributed 10,500 points to the Landsraad this week for House Alexis”.</p>
       <form method="POST">
         <?php echo csrfField(); ?>
         <input type="hidden" name="action" value="analyze">
@@ -456,6 +556,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           </tbody></table>
         </div>
         <?php endif; ?>
+        <?php if (!empty($landsraad)): ?>
+        <div class="table-responsive" style="margin-top:1rem;">
+          <h4>Landsraad Turn-ins</h4>
+          <table class="data-table"><thead><tr><th>House</th><th>Item</th><th>Qty</th><th>PPU</th><th>Bonus%</th><th>Total Points</th></tr></thead><tbody>
+            <?php foreach ($landsraad as $lr): ?>
+              <tr>
+                <td><?php echo htmlspecialchars((string)($lr['house'] ?? '')); ?></td>
+                <td><?php echo htmlspecialchars((string)($lr['item_name'] ?? '')); ?></td>
+                <td class="quantity"><?php echo number_format((int)($lr['quantity'] ?? 0)); ?></td>
+                <td class="quantity"><?php echo number_format((int)($lr['points_per_unit'] ?? 0)); ?></td>
+                <td class="quantity"><?php echo (float)($lr['bonus_pct'] ?? 0); ?></td>
+                <td class="quantity"><?php echo number_format((int)($lr['total_points'] ?? 0)); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody></table>
+        </div>
+        <?php endif; ?>
         <?php if (!empty($resolvedParticipants)): ?>
           <div style="margin:0.75rem 0; color:var(--text-secondary);">
             Participants: <?php echo htmlspecialchars(implode(', ', array_map(fn($p) => $p['name'], $resolvedParticipants))); ?>
@@ -475,6 +592,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <input type="hidden" name="participants_json" value='<?php echo json_encode(array_map(fn($p)=>$p['name'], $resolvedParticipants)); ?>'>
           <input type="hidden" name="shares_json" value='<?php echo json_encode($shares); ?>'>
           <input type="hidden" name="refined_json" value='<?php echo json_encode($refined); ?>'>
+          <input type="hidden" name="landsraad_json" value='<?php echo json_encode($landsraad); ?>'>
           <?php if (!empty($refined)): ?>
           <label style="display:inline-flex; align-items:center; gap:0.5rem; margin-right:1rem;">
             <input type="checkbox" name="save_refined" value="1" checked> Save refined outputs too
