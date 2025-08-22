@@ -72,7 +72,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (empty($errors)) {
         try {
             $db = getDB();
-            $db->beginTransaction();
             
             // Get resource name for logging
             $stmt = $db->prepare("SELECT name FROM resources WHERE id = ?");
@@ -119,13 +118,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $message = 'Resource contribution recorded successfully!';
             }
             
-            $db->commit();
             $message_type = 'success';
             
             // Clear form values on success
             $_POST = [];
         } catch (Exception $e) {
-            $db->rollBack();
             error_log('Contribution submission error: ' . $e->getMessage());
             $message = 'An error occurred. Please try again.';
             $message_type = 'error';
