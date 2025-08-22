@@ -209,7 +209,7 @@ try {
     <style>
         .dashboard-container {
             display: grid;
-            grid-template-columns: 300px 1fr 350px;
+            grid-template-columns: 1fr 360px;
             gap: 2rem;
             margin-top: 2rem;
         }
@@ -356,17 +356,9 @@ try {
         }
         
         @media (max-width: 1200px) {
-            .dashboard-container {
-                grid-template-columns: 1fr;
-            }
-            
-            .left-sidebar, .right-sidebar {
-                order: 2;
-            }
-            
-            .main-area {
-                order: 1;
-            }
+            .dashboard-container { grid-template-columns: 1fr; }
+            .right-sidebar { order: 2; }
+            .main-area { order: 1; }
         }
     </style>
 </head>
@@ -408,7 +400,7 @@ try {
         </div>
 
         <div class="dashboard-container">
-            <!-- Left Sidebar -->
+            <!-- Left Sidebar (Goals + Runs) -->
             <div class="left-sidebar">
                 <!-- Resource Goals -->
                 <div class="goals-card">
@@ -469,7 +461,7 @@ try {
                 </div>
             </div>
 
-            <!-- Main Area -->
+            <!-- Main Area (Inventory + Recent) -->
             <div class="main-area">
                 <!-- Resource Inventory -->
                 <section class="card">
