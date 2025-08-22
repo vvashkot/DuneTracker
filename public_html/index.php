@@ -206,6 +206,15 @@ try {
     $landsraad_week = [];
 }
 
+// Dazen kills weekly top (target contains 'DAZEN')
+try {
+    $stmt = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.target LIKE '%DAZEN%' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 5");
+    $stmt->execute([$week_start, $week_end]);
+    $dazen_week = $stmt->fetchAll();
+} catch (Throwable $e) {
+    $dazen_week = [];
+}
+
 // Build weekly series for charts (last 8 ISO weeks)
 function buildWeekKeys($weeksBack = 8) {
     $keys = [];
@@ -653,62 +662,23 @@ try {
                     <?php endif; ?>
                 </div>
 
-                <!-- Combat Leaderboards (Weekly) -->
+                <!-- Dazen Kills (Weekly) -->
                 <div class="leaderboard-card">
                     <div class="section-header">
-                        <h3 class="section-title">⚔️ Combat (This Week)</h3>
+                        <h3 class="section-title">😈 Dazen Kills (This Week)</h3>
                         <a href="/combat.php" class="btn btn-secondary btn-sm">My Combat</a>
                     </div>
-                    <div style="margin:0.5rem 0 1rem;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-                            <span style="color:var(--text-secondary); font-size:0.85rem;">Ground (8 weeks)</span>
-                            <div><?php echo renderSparkline($groundSeries, 220, 40, '#4CAF50'); ?></div>
-                        </div>
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem; margin-top:0.5rem;">
-                            <span style="color:var(--text-secondary); font-size:0.85rem;">Air (8 weeks)</span>
-                            <div><?php echo renderSparkline($airSeries, 220, 40, '#F44336'); ?></div>
-                        </div>
-                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
-                            <span style="display:inline-flex; align-items:center; gap:6px;">
-                                <span style="display:inline-block; width:10px; height:10px; background:#4CAF50; border-radius:2px;"></span>
-                                Ground
-                            </span>
-                            <span style="display:inline-flex; align-items:center; gap:6px;">
-                                <span style="display:inline-block; width:10px; height:10px; background:#F44336; border-radius:2px;"></span>
-                                Air
-                            </span>
-                        </div>
-                    </div>
-                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
-                        <div>
-                            <h4 style="font-size:0.9rem; color:var(--text-secondary);">Ground</h4>
-                            <?php if (empty($top_ground_week)): ?>
-                                <p class="empty-state" style="font-size:0.85rem;">No data</p>
-                            <?php else: ?>
-                                <?php foreach ($top_ground_week as $i => $row): ?>
-                                    <div class="leaderboard-item" style="margin-bottom:0.35rem;">
-                                        <span class="leaderboard-rank"><?php echo $i+1; ?></span>
-                                        <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
-                                        <span class="leaderboard-value"><?php echo (int)$row['cnt']; ?></span>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                        <div>
-                            <h4 style="font-size:0.9rem; color:var(--text-secondary);">Air</h4>
-                            <?php if (empty($top_air_week)): ?>
-                                <p class="empty-state" style="font-size:0.85rem;">No data</p>
-                            <?php else: ?>
-                                <?php foreach ($top_air_week as $i => $row): ?>
-                                    <div class="leaderboard-item" style="margin-bottom:0.35rem;">
-                                        <span class="leaderboard-rank"><?php echo $i+1; ?></span>
-                                        <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
-                                        <span class="leaderboard-value"><?php echo (int)$row['cnt']; ?></span>
-                                    </div>
-                                <?php endforeach; ?>
-                            <?php endif; ?>
-                        </div>
-                    </div>
+                    <?php if (empty($dazen_week)): ?>
+                        <p class="empty-state" style="font-size:0.85rem;">No Dazen hits yet.</p>
+                    <?php else: ?>
+                        <?php foreach ($dazen_week as $i => $row): ?>
+                            <div class="leaderboard-item">
+                                <span class="leaderboard-rank <?php echo $i===0?'gold':($i===1?'silver':($i===2?'bronze':'')); ?>"><?php echo $i+1; ?></span>
+                                <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
+                                <span class="leaderboard-value"><?php echo (int)$row['cnt']; ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
 
                 
