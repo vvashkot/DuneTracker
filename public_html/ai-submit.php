@@ -110,8 +110,9 @@ function normalizeResourceName(string $name): string {
         '/^(mel|melan|melange)$/' => 'melange',
         // Plastanium
         '/^(plas|plast|plastan|plastanium|pla)$/' => 'plastanium',
-        // Filters
-        '/^(filter|filters|fil)$/' => 'filter',
+        // Filters (explicit mapping)
+        '/^(advfilter|advfilters|advancedfilter|advancedfilters|advancedparticulatefilters?|apf)$/' => 'advanced particulate filter',
+        '/^(filter|filters|fil|particulatefilters?)$/' => 'particulate filter',
     ];
     foreach ($aliases as $pattern => $target) {
         if (preg_match($pattern, $n)) return $target;
@@ -122,6 +123,13 @@ function normalizeResourceName(string $name): string {
 function findResourceIdByName(string $name) {
     $db = getDB();
     $canon = normalizeResourceName($name);
+    // Special-case filters: default "filters" to particulate filter, "adv" to advanced particulate filter
+    $lcraw = strtolower(trim($name));
+    if (preg_match('/\badv(anced)?\b.*\bfilters?\b/', $lcraw)) {
+        $canon = 'advanced particulate filter';
+    } elseif (preg_match('/\bfilters?\b/', $lcraw) && !preg_match('/\badv(anced)?\b/', $lcraw)) {
+        $canon = 'particulate filter';
+    }
     $lc = strtolower($canon);
     $starts = $lc . '%';
     $contains = '%' . $lc . '%';
