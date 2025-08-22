@@ -20,7 +20,13 @@ function saveUploadedImage(): ?string {
     $name = time() . '_' . bin2hex(random_bytes(4)) . '.' . $ext;
     $path = $dir . $name;
     if (!move_uploaded_file($file['tmp_name'], $path)) return null;
-    return '/uploads/feedback/' . $name;
+    // Ensure the returned URL is absolute so Discord can fetch it
+    $pathRel = '/uploads/feedback/' . $name;
+    if (defined('APP_URL') && APP_URL) {
+        $base = rtrim(APP_URL, '/');
+        return $base . $pathRel;
+    }
+    return $pathRel;
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['type'])) {
