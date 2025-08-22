@@ -652,6 +652,7 @@ try {
                     <div class="section-header">
                         <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
                         <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
+                        <a href="/landsraad-progress.php" class="btn btn-secondary btn-sm">Landsraad Progress</a>
                     </div>
                     <div style="margin:0.5rem 0 1rem;">
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
