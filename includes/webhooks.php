@@ -5,6 +5,15 @@
 
 require_once __DIR__ . '/db.php';
 
+function absoluteUrl($maybePath) {
+    if (!$maybePath) return null;
+    if (preg_match('#^https?://#i', $maybePath)) return $maybePath;
+    $base = defined('APP_URL') ? APP_URL : '';
+    if ($base && str_ends_with($base, '/')) { $base = rtrim($base, '/'); }
+    if ($maybePath[0] !== '/') { $maybePath = '/' . $maybePath; }
+    return $base ? ($base . $maybePath) : $maybePath;
+}
+
 // Event types that can trigger webhooks
 const WEBHOOK_EVENTS = [
     'user_approval_pending' => 'New User Awaiting Approval',
@@ -405,7 +414,7 @@ function notifyFeatureRequest($user, $title, $description, $image_url = null) {
             ['name' => 'Title', 'value' => $title, 'inline' => false],
         ]
     ];
-    if ($image_url) { $embed['image'] = ['url' => $image_url]; }
+    if ($image_url) { $embed['image'] = ['url' => absoluteUrl($image_url)]; }
     $sent = sendDiscordWebhook('feature_request', $embed);
     if (defined('DISCORD_DM_USER_ID') && DISCORD_DM_USER_ID) {
         $sent += sendDiscordDM(DISCORD_DM_USER_ID, $embed, null);
@@ -424,7 +433,7 @@ function notifyBugReport($user, $title, $description, $image_url = null) {
         ],
         'color' => 15158332
     ];
-    if ($image_url) { $embed['image'] = ['url' => $image_url]; }
+    if ($image_url) { $embed['image'] = ['url' => absoluteUrl($image_url)]; }
     $sent = sendDiscordWebhook('bug_report', $embed);
     if (defined('DISCORD_DM_USER_ID') && DISCORD_DM_USER_ID) {
         $sent += sendDiscordDM(DISCORD_DM_USER_ID, $embed, null);
