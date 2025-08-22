@@ -15,6 +15,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         $type = $_POST['type'] === 'air_kill' ? 'air_kill' : 'ground_kill';
         $weapon = trim($_POST['weapon'] ?? '');
         $target = trim($_POST['target'] ?? '');
+        if (isset($_POST['is_dazen']) && $_POST['is_dazen'] === '1') { $target = $target ? ($target . ' | DAZEN') : 'DAZEN'; }
         $occurred_at = $_POST['occurred_at'] ?: date('Y-m-d H:i:s');
         $notes = trim($_POST['notes'] ?? '');
         $stmt = $db->prepare("INSERT INTO combat_events (user_id, type, weapon, target, occurred_at, notes) VALUES (?, ?, ?, ?, ?, ?)");
@@ -105,6 +106,7 @@ $weekly_totals = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, DATE_FORMAT(S
         <select name="type" class="form-control"><option value="ground_kill">Ground Kill</option><option value="air_kill">Air Kill</option></select>
         <input type="text" name="weapon" class="form-control" placeholder="Weapon (optional)">
         <input type="text" name="target" class="form-control" placeholder="Target (optional)">
+        <label style="display:inline-flex; align-items:center; gap:6px; color:var(--text-secondary);"><input type="checkbox" name="is_dazen" value="1"> Dazen kill</label>
         <input type="datetime-local" name="occurred_at" class="form-control">
         <input type="text" name="notes" class="form-control" placeholder="Notes (optional)">
         <button type="submit" class="btn btn-primary">Log</button>
@@ -115,6 +117,12 @@ $weekly_totals = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, DATE_FORMAT(S
       <h3>My Stats since <?php echo htmlspecialchars($since); ?></h3>
       <p>Ground kills: <strong><?php echo number_format($my_ground); ?></strong></p>
       <p>Air kills: <strong><?php echo number_format($my_air); ?></strong></p>
+      <?php 
+        $my_dazen = $db->prepare("SELECT COUNT(*) FROM combat_events WHERE user_id=? AND (target LIKE '%DAZEN%') AND occurred_at >= ?");
+        $my_dazen->execute([$user['db_id'], $since]);
+        $my_dazen = (int)$my_dazen->fetchColumn();
+      ?>
+      <p>Dazen kills: <strong><?php echo number_format($my_dazen); ?></strong></p>
     </div>
 
     <div class="card" style="margin-top:1.5rem;">
@@ -135,6 +143,20 @@ $weekly_totals = $db->query("SELECT YEARWEEK(occurred_at,1) as yw, DATE_FORMAT(S
           </ul>
         </div>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:1.5rem;">
+      <h3>Dazen Leaderboard (This Week)</h3>
+      <ul>
+        <?php 
+          $dazen_week = $db->prepare("SELECT COALESCE(u.in_game_name, u.username) as username, COUNT(*) as cnt FROM combat_events ce JOIN users u ON ce.user_id=u.id WHERE ce.target LIKE '%DAZEN%' AND ce.occurred_at BETWEEN ? AND ? GROUP BY ce.user_id ORDER BY cnt DESC LIMIT 10");
+          $dazen_week->execute([$week_start, $week_end]);
+          $drows = $dazen_week->fetchAll();
+          foreach ($drows as $row): ?>
+            <li><?php echo htmlspecialchars($row['username']); ?> — <?php echo (int)$row['cnt']; ?></li>
+        <?php endforeach; ?>
+        <?php if (empty($drows)): ?><li class="empty-state">No data.</li><?php endif; ?>
+      </ul>
     </div>
 
     <div class="card" style="margin-top:1.5rem;">
