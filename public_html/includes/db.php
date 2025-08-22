@@ -110,6 +110,14 @@ function getAllResources() {
     return $stmt->fetchAll();
 }
 
+// Utility: check if a column exists in the current database
+function dbColumnExists(string $table, string $column): bool {
+    $db = getDB();
+    $stmt = $db->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+    $stmt->execute([$table, $column]);
+    return (int)$stmt->fetchColumn() > 0;
+}
+
 // Helper function to get resource totals
 function getResourceTotals() {
     $db = getDB();
@@ -527,11 +535,14 @@ function completeFarmingRun($run_id) {
 // Get all guild members (users who have logged in or manual users)
 function getAllGuildMembers() {
     $db = getDB();
-    $sql = "SELECT id, discord_id, username, in_game_name, avatar, is_manual 
-            FROM users 
-            WHERE merged_into_user_id IS NULL 
-            ORDER BY username";
-    return $db->query($sql)->fetchAll();
+    // Handle older schemas gracefully
+    $hasMerged = dbColumnExists('users', 'merged_into_user_id');
+    $hasManual = dbColumnExists('users', 'is_manual');
+    $manualSel = $hasManual ? 'is_manual' : '0 AS is_manual';
+    $where = $hasMerged ? 'WHERE merged_into_user_id IS NULL' : '';
+    $sql = "SELECT id, discord_id, username, in_game_name, avatar, $manualSel FROM users $where ORDER BY username";
+    $stmt = $db->query($sql);
+    return $stmt->fetchAll();
 }
 
 // Update a user's in-game name
