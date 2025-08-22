@@ -209,7 +209,7 @@ try {
     <style>
         .dashboard-container {
             display: grid;
-            grid-template-columns: 1fr 360px;
+            grid-template-columns: 300px 1fr 350px;
             gap: 2rem;
             margin-top: 2rem;
         }
@@ -356,9 +356,17 @@ try {
         }
         
         @media (max-width: 1200px) {
-            .dashboard-container { grid-template-columns: 1fr; }
-            .right-sidebar { order: 2; }
-            .main-area { order: 1; }
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+            
+            .left-sidebar, .right-sidebar {
+                order: 2;
+            }
+            
+            .main-area {
+                order: 1;
+            }
         }
     </style>
 </head>
