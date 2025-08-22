@@ -35,69 +35,7 @@ if (!$isLoggedIn) {
                     <a href="/login.php" class="btn btn-primary">Login with Discord</a>
                 </div>
 
-                <!-- Landsraad Weekly (moved here) -->
-                <div class="leaderboard-card">
-                    <div class="section-header">
-                        <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
-                        <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
-                        <a href="/landsraad-progress.php" class="btn btn-secondary btn-sm">Landsraad Progress</a>
-                    </div>
-                    <div style="margin:0.5rem 0 1rem;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-                            <span style="color:var(--text-secondary); font-size:0.85rem;">Points (8 weeks)</span>
-                            <div><?php echo renderSparkline($landsraadSeries, 220, 40, '#2196F3'); ?></div>
-                        </div>
-                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
-                            <span style="display:inline-flex; align-items:center; gap:6px;">
-                                <span style="display:inline-block; width:10px; height:10px; background:#2196F3; border-radius:2px;"></span>
-                                Points
-                            </span>
-                        </div>
-                    </div>
-                    <?php if (empty($landsraad_week)): ?>
-                        <p class="empty-state" style="font-size:0.85rem;">No points logged</p>
-                    <?php else: ?>
-                        <?php foreach ($landsraad_week as $i => $row): ?>
-                            <div class="leaderboard-item">
-                                <span class="leaderboard-rank <?php echo $i===0?'gold':($i===1?'silver':($i===2?'bronze':'')); ?>"><?php echo $i+1; ?></span>
-                                <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
-                                <span class="leaderboard-value"><?php echo number_format($row['pts']); ?></span>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
                 
-                <!-- Landsraad Weekly (moved from right sidebar) -->
-                <div class="leaderboard-card">
-                    <div class="section-header">
-                        <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
-                        <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
-                        <a href="/landsraad-progress.php" class="btn btn-secondary btn-sm">Landsraad Progress</a>
-                    </div>
-                    <div style="margin:0.5rem 0 1rem;">
-                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
-                            <span style="color:var(--text-secondary); font-size:0.85rem;">Points (8 weeks)</span>
-                            <div><?php echo renderSparkline($landsraadSeries, 220, 40, '#2196F3'); ?></div>
-                        </div>
-                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
-                            <span style="display:inline-flex; align-items:center; gap:6px;">
-                                <span style="display:inline-block; width:10px; height:10px; background:#2196F3; border-radius:2px;"></span>
-                                Points
-                            </span>
-                        </div>
-                    </div>
-                    <?php if (empty($landsraad_week)): ?>
-                        <p class="empty-state" style="font-size:0.85rem;">No points logged</p>
-                    <?php else: ?>
-                        <?php foreach ($landsraad_week as $i => $row): ?>
-                            <div class="leaderboard-item">
-                                <span class="leaderboard-rank <?php echo $i===0?'gold':($i===1?'silver':($i===2?'bronze':'')); ?>"><?php echo $i+1; ?></span>
-                                <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
-                                <span class="leaderboard-value"><?php echo number_format($row['pts']); ?></span>
-                            </div>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </div>
             </div>
         </nav>
         <div class="container">
@@ -681,52 +619,46 @@ try {
                     <?php endif; ?>
                 </div>
 
-                
-                
-                <!-- Quick Stats -->
-                <div class="card">
-                    <h3>Guild Statistics</h3>
-                    <div style="display: grid; gap: 1rem; margin-top: 1rem;">
-                        <div class="stat-item" style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
-                            <span style="color: var(--text-secondary);">Total Members</span>
-                            <span style="font-weight: 600; color: var(--primary-color);">
-                                <?php 
-                                $db = getDB();
-                                echo $db->query("SELECT COUNT(*) FROM users WHERE merged_into_user_id IS NULL")->fetchColumn();
-                                ?>
-                            </span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
-                            <span style="color: var(--text-secondary);">Active Runs</span>
-                            <span style="font-weight: 600; color: var(--success-color);">
-                                <?php echo count($upcoming_runs); ?>
-                            </span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
-                            <span style="color: var(--text-secondary);">Today's Contributions</span>
-                            <span style="font-weight: 600; color: var(--warning-color);">
-                                <?php 
-                                $stmt = $db->query("SELECT COUNT(*) FROM contributions WHERE DATE(date_collected) = CURDATE()");
-                                echo $stmt->fetchColumn();
-                                ?>
-                            </span>
-                        </div>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
-                            <span style="color: var(--text-secondary);">Guild Treasury</span>
-                            <span style="font-weight: 600; color: var(--primary-color);">
-                                <?php echo number_format($treasury_totals['total_resources']); ?>
-                            </span>
-                        </div>
-                        <?php if ($tax_enabled): ?>
-                        <div class="stat-item" style="display: flex; justify-content: space-between; padding: 0.75rem; background: var(--bg-tertiary); border-radius: var(--radius-sm);">
-                            <span style="color: var(--text-secondary);">Guild Tax Rate</span>
-                            <span style="font-weight: 600; color: var(--success-color);">
-                                <?php echo number_format($tax_rate, 1); ?>%
-                            </span>
-                        </div>
-                        <?php endif; ?>
+                <!-- Landsraad Weekly (right sidebar) -->
+                <div class="leaderboard-card">
+                    <div class="section-header">
+                        <h3 class="section-title">🏛️ Landsraad (This Week)</h3>
+                        <a href="/landsraad.php" class="btn btn-secondary btn-sm">My Landsraad</a>
+                        <a href="/landsraad-progress.php" class="btn btn-secondary btn-sm">Landsraad Progress</a>
                     </div>
+                    <div style="margin:0.5rem 0 1rem;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:0.5rem;">
+                            <span style="color:var(--text-secondary); font-size:0.85rem;">Points (8 weeks)</span>
+                            <div><?php echo renderSparkline($landsraadSeries, 220, 40, '#2196F3'); ?></div>
+                        </div>
+                        <div style="display:flex; gap:12px; align-items:center; margin-top:6px; font-size:0.75rem; color:var(--text-secondary);">
+                            <span style="display:inline-flex; align-items:center; gap:6px;">
+                                <span style="display:inline-block; width:10px; height:10px; background:#2196F3; border-radius:2px;"></span>
+                                Points
+                            </span>
+                        </div>
+                    </div>
+                    <?php if (empty($landsraad_week)): ?>
+                        <p class="empty-state" style="font-size:0.85rem;">No points logged</p>
+                    <?php else: ?>
+                        <?php foreach ($landsraad_week as $i => $row): ?>
+                            <div class="leaderboard-item">
+                                <span class="leaderboard-rank <?php echo $i===0?'gold':($i===1?'silver':($i===2?'bronze':'')); ?>"><?php echo $i+1; ?></span>
+                                <div class="leaderboard-user"><span><?php echo htmlspecialchars($row['username']); ?></span></div>
+                                <span class="leaderboard-value"><?php echo number_format($row['pts']); ?></span>
+                            </div>
+                        <?php endforeach; ?>
+                    <?php endif; ?>
                 </div>
+
+                
+                
+                <!-- Quick Stats hidden per request -->
+                <!--
+                <div class="card">
+                  ... Guild Statistics hidden ...
+                </div>
+                -->
             </div>
         </div>
     </div>
