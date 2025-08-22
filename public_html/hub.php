@@ -26,11 +26,16 @@ function getWeekEnd(): string {
   return $start->format('Y-m-d H:i:s');
 }
 
-// Find Filters resource id if present
-$filter_resource_id = null;
-$stmt = $db->prepare("SELECT id FROM resources WHERE LOWER(name) LIKE 'filter%' ORDER BY id LIMIT 1");
-$stmt->execute();
-$filter_resource_id = $stmt->fetchColumn() ?: null;
+// Find filter resource ids (e.g., Particulate Filter, Advanced Particulate Filter)
+$filter_resource_ids = [];
+$stmt = $db->query("SELECT id, LOWER(name) AS lname FROM resources WHERE LOWER(name) LIKE '%filter%' ORDER BY name");
+foreach ($stmt->fetchAll() as $row) { $filter_resource_ids[] = (int)$row['id']; }
+// Prefer particulate filter as default quick-add target if present
+$default_filter_id = null;
+if (!empty($filter_resource_ids)) {
+    $stmt = $db->query("SELECT id FROM resources WHERE LOWER(name) LIKE 'particulate%filter%' LIMIT 1");
+    $default_filter_id = (int)($stmt->fetchColumn() ?: $filter_resource_ids[0]);
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     verifyPOST();
@@ -53,9 +58,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $message_type = 'success';
                 break;
             case 'add_filter_quick':
-                if ($filter_resource_id) {
+                if (!empty($filter_resource_ids)) {
                     $qty = max(1, intval($_POST['quantity'] ?? 1));
-                    addContribution($user['db_id'], $filter_resource_id, $qty, 'Hub filter');
+                    addContribution($user['db_id'], $default_filter_id, $qty, 'Hub filter');
+                    // Auto-register user for this Tue–Mon week on contribution
+                    $week_start = getWeekStart();
+                    $stmt = $db->prepare("INSERT IGNORE INTO hub_registrations (user_id, week_start) VALUES (?, ?)");
+                    $stmt->execute([$user['db_id'], $week_start]);
                     $message = 'Filter contribution recorded';
                     $message_type = 'success';
                 }
@@ -110,9 +119,12 @@ $week_start = getWeekStart();
 $week_end = getWeekEnd();
 
 $filters_collected = 0;
-if ($filter_resource_id) {
-    $stmt = $db->prepare("SELECT COALESCE(SUM(quantity),0) FROM contributions WHERE user_id=? AND resource_id=? AND DATE(date_collected) BETWEEN ? AND ?");
-    $stmt->execute([$user['db_id'], $filter_resource_id, $week_start, substr($week_end,0,10)]);
+if (!empty($filter_resource_ids)) {
+    // Sum across all filter resource ids
+    $place = implode(',', array_fill(0, count($filter_resource_ids), '?'));
+    $params = array_merge([$user['db_id']], $filter_resource_ids, [$week_start, substr($week_end,0,10)]);
+    $stmt = $db->prepare("SELECT COALESCE(SUM(quantity),0) FROM contributions WHERE user_id=? AND resource_id IN ($place) AND DATE(date_collected) BETWEEN ? AND ?");
+    $stmt->execute($params);
     $filters_collected = (int)$stmt->fetchColumn();
 }
 
@@ -182,7 +194,7 @@ foreach ($roster_all as $r) {
       <h3>Filters Progress</h3>
       <p>Collected this week: <strong><?php echo number_format($filters_collected); ?></strong><?php if ($filters_required>0): ?> / <?php echo number_format($filters_required); ?> required<?php endif; ?></p>
       <div class="form-inline">
-        <?php if ($filter_resource_id): ?>
+        <?php if (!empty($filter_resource_ids)): ?>
         <form method="POST">
           <?php echo csrfField(); ?>
           <input type="hidden" name="action" value="add_filter_quick">
@@ -191,7 +203,7 @@ foreach ($roster_all as $r) {
           <a href="/submit.php" class="btn btn-secondary">Open Submit</a>
         </form>
         <?php else: ?>
-          <p style="color:var(--text-secondary);">No 'Filter' resource found. Add it in Resources.</p>
+          <p style="color:var(--text-secondary);">No filter-type resources found. Add "Particulate Filter" or "Advanced Particulate Filter" in Resources.</p>
         <?php endif; ?>
       </div>
     </div>
