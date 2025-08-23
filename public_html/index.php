@@ -93,6 +93,21 @@ $resource_totals = $db->query("
 
 $recent_contributions = getRecentContributions(10);
 $active_goals = getActiveResourceGoals();
+// Landsraad goals (active) for sidebar
+try {
+    $landsraad_goals = $db->query("SELECT id, item_name, points_per_unit, target_points, required_qty, icon_url FROM landsraad_item_goals WHERE active=1 ORDER BY created_at DESC LIMIT 6")->fetchAll();
+    $lg_progress = [];
+    if (!empty($landsraad_goals)) {
+        $ids = array_map(fn($g)=> (int)$g['id'], $landsraad_goals);
+        $place = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $db->prepare("SELECT goal_id, COALESCE(SUM(qty),0) as qty FROM landsraad_goal_stock_logs WHERE goal_id IN ($place) GROUP BY goal_id");
+        $stmt->execute($ids);
+        foreach ($stmt->fetchAll() as $r) { $lg_progress[(int)$r['goal_id']] = (int)$r['qty']; }
+    }
+} catch (Throwable $e) {
+    $landsraad_goals = [];
+    $lg_progress = [];
+}
 $top_contributors_week = getTopContributors('week', 5);
 $upcoming_runs = getUpcomingFarmingRuns(3);
 
@@ -421,36 +436,29 @@ try {
         <div class="dashboard-container">
             <!-- Left Sidebar (Goals + Runs) -->
             <div class="left-sidebar">
-                <!-- Resource Goals -->
+                <!-- Landsraad Goals -->
                 <div class="goals-card">
                     <div class="section-header">
-                        <h3 class="section-title">📎 Resource Goals</h3>
+                        <h3 class="section-title">🎯 Landsraad Goals</h3>
                         <?php if (isAdmin()): ?>
-                            <a href="/admin/goals.php" class="btn btn-secondary btn-sm">Manage</a>
+                            <a href="/admin/landsraad-goals.php" class="btn btn-secondary btn-sm">Manage</a>
                         <?php endif; ?>
                     </div>
-                    
-                    <?php if (empty($active_goals)): ?>
-                        <p style="color: var(--text-secondary); font-size: 0.875rem;">No active goals</p>
+                    <?php if (empty($landsraad_goals)): ?>
+                        <p style="color: var(--text-secondary); font-size: 0.875rem;">No active Landsraad goals</p>
                     <?php else: ?>
-                        <?php foreach ($active_goals as $goal): 
-                            $progress = min(100, ($goal['current_amount'] / $goal['target_amount']) * 100);
+                        <?php foreach ($landsraad_goals as $g): 
+                            $collected = (int)($lg_progress[$g['id']] ?? 0);
+                            $pct = $g['required_qty'] > 0 ? min(100, ($collected / (int)$g['required_qty']) * 100) : 0;
                         ?>
-                            <div class="goal-item">
-                                <div class="goal-header">
-                                    <span class="goal-name"><?php echo htmlspecialchars($goal['resource_name']); ?></span>
-                                    <?php if ($goal['deadline']): ?>
-                                        <span class="goal-deadline">Due <?php echo date('M d', strtotime($goal['deadline'])); ?></span>
-                                    <?php endif; ?>
-                                </div>
-                                <div class="progress-bar">
-                                    <div class="progress-fill" style="width: <?php echo $progress; ?>%"></div>
-                                </div>
-                                <div class="progress-text">
-                                    <?php echo number_format($goal['current_amount']); ?> / <?php echo number_format($goal['target_amount']); ?>
-                                    (<?php echo round($progress); ?>%)
-                                </div>
+                        <div class="goal-item">
+                            <div class="goal-header">
+                                <span class="goal-name"><?php if (!empty($g['icon_url'])): ?><img src="<?php echo htmlspecialchars($g['icon_url']); ?>" alt="" style="width:14px;height:14px;vertical-align:middle;margin-right:6px;"><?php endif; ?><?php echo htmlspecialchars($g['item_name']); ?></span>
+                                <span class="goal-deadline" style="color:var(--text-secondary); font-size:0.75rem;">PPU <?php echo (int)$g['points_per_unit']; ?> • Target <?php echo number_format($g['target_points']); ?></span>
                             </div>
+                            <div class="progress-bar"><div class="progress-fill" style="width: <?php echo $pct; ?>%"></div></div>
+                            <div class="progress-text"><?php echo number_format($collected); ?> / <?php echo number_format((int)$g['required_qty']); ?> (<?php echo round($pct); ?>%)</div>
+                        </div>
                         <?php endforeach; ?>
                     <?php endif; ?>
                 </div>
