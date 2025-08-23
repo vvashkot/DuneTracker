@@ -393,8 +393,7 @@ $recent_withdrawals = $stmt->fetchAll();
                     <div class="resource-item" 
                          data-resource-id="<?php echo $resource['id']; ?>"
                          data-resource-name="<?php echo htmlspecialchars($resource['name']); ?>"
-                         data-available="<?php echo $resource['available_stock']; ?>"
-                         onclick="selectResource(this)">
+                         data-available="<?php echo $resource['available_stock']; ?>">
                         <span class="resource-name"><?php echo htmlspecialchars($resource['name']); ?></span>
                         <span class="resource-quantity"><?php echo number_format($resource['available_stock'], 2); ?></span>
                     </div>
@@ -404,66 +403,6 @@ $recent_withdrawals = $stmt->fetchAll();
         </div>
     </div>
 
-    <script>
-        let selectedResource = null;
-        
-        function selectResource(element) {
-            // Remove previous selection
-            document.querySelectorAll('.resource-item').forEach(item => {
-                item.classList.remove('selected');
-            });
-            
-            // Add selection to clicked item
-            element.classList.add('selected');
-            
-            // Update form
-            const resourceId = element.dataset.resourceId;
-            const resourceName = element.dataset.resourceName;
-            const available = parseFloat(element.dataset.available);
-            
-            selectedResource = {
-                id: resourceId,
-                name: resourceName,
-                available: available
-            };
-            
-            document.getElementById('resource_id').value = resourceId;
-            document.getElementById('selected-resource').innerHTML = `
-                <strong>${resourceName}</strong><br>
-                <small>Available: ${available.toFixed(2)}</small>
-            `;
-            
-            // Enable form fields
-            document.getElementById('quantity').disabled = false;
-            document.getElementById('quantity').max = available;
-            document.getElementById('purpose').disabled = false;
-            document.getElementById('notes').disabled = false;
-            document.getElementById('submit-btn').disabled = false;
-            
-            // Update preview
-            document.getElementById('available-amount').textContent = available.toFixed(2);
-            updateQuantityPreview();
-        }
-        
-        // Update quantity preview
-        document.getElementById('quantity').addEventListener('input', updateQuantityPreview);
-        
-        function updateQuantityPreview() {
-            if (!selectedResource) return;
-            
-            const quantity = parseFloat(document.getElementById('quantity').value) || 0;
-            const remaining = selectedResource.available - quantity;
-            
-            document.getElementById('remaining-amount').textContent = remaining.toFixed(2);
-            document.getElementById('quantity-preview').style.display = quantity > 0 ? 'flex' : 'none';
-            
-            // Validate quantity
-            if (quantity > selectedResource.available) {
-                document.getElementById('quantity').setCustomValidity('Quantity exceeds available amount');
-            } else {
-                document.getElementById('quantity').setCustomValidity('');
-            }
-        }
-    </script>
+    <script src="/js/withdraw.js" defer></script>
 </body>
 </html>
