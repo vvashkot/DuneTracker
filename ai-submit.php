@@ -612,7 +612,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <button class="btn btn-primary" type="submit">Add Resources & Re-Analyze</button>
         <?php else: ?>
           <input type="hidden" name="action" value="analyze">
-          <textarea name="freeform" rows="4" class="form-control" placeholder="Type your note...">&lt;?php echo htmlspecialchars($_POST['freeform'] ?? ''); ?&gt;</textarea>
+          <textarea name="freeform" rows="4" class="form-control" placeholder="Type your note..."><?php echo htmlspecialchars($_POST['freeform'] ?? ''); ?></textarea>
           <button class="btn btn-primary" type="submit" style="margin-top:0.75rem;">Analyze</button>
         <?php endif; ?>
       </form>
