@@ -15,12 +15,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Push public_html to deploy branch via subtree
-        run: |
-          set -e
-          # Create a split of public_html and force-push it to deploy
-          git subtree split --prefix public_html -b deploy-tmp
-          git push origin deploy-tmp:deploy --force
+      - name: Push public_html to deploy branch
+        uses: s0/git-publish-subdir-action@v2.6.0
+        with:
+          repository: ${{ github.repository }}
+          branch: deploy
+          folder: public_html
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          clean: true
+          force: true
 
       - name: Try migrations (optional)
         id: mig
