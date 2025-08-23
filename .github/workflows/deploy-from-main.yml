@@ -1,0 +1,80 @@
+name: Deploy from main
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # allow pushing to deploy branch
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Push public_html to deploy branch via subtree
+        run: |
+          set -e
+          # Create a split of public_html and force-push it to deploy
+          git subtree split --prefix public_html -b deploy-tmp
+          git push origin deploy-tmp:deploy --force
+
+      - name: Try migrations (optional)
+        id: mig
+        env:
+          MIGRATIONS_TOKEN: ${{ secrets.MIGRATIONS_TOKEN }}
+        run: |
+          set +e
+          if [ -z "$MIGRATIONS_TOKEN" ]; then
+            echo "migrated=skipped" >> $GITHUB_OUTPUT
+            echo "No MIGRATIONS_TOKEN secret set; skipping migrations call"
+            exit 0
+          fi
+          URL="https://houserubi-ka.com/deploy/run-migrations.php?token=${MIGRATIONS_TOKEN}"
+          echo "Calling migrations endpoint: $URL"
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$code" = "200" ]; then
+              echo "migrated=success" >> $GITHUB_OUTPUT
+              echo "Migrations endpoint returned 200"
+              exit 0
+            fi
+            echo "Attempt $i/12 => HTTP $code. Retrying in 5s..."
+            sleep 5
+          done
+          echo "migrated=failed" >> $GITHUB_OUTPUT
+          echo "Migrations did not return 200 within timeout"
+          exit 0
+
+      - name: Build deploy message
+        id: msg
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          REPO="${{ github.repository }}"
+          COMPARE="https://github.com/${REPO}/compare/${BEFORE}...${AFTER}"
+          SHORT="${AFTER::7}"
+          STATUS="${{ steps.mig.outputs.migrated }}"
+          if [ "$STATUS" = "success" ]; then
+            MSG="✅ Deploy live (migrations ok): ${REPO}@${SHORT} (${COMPARE})"
+          elif [ "$STATUS" = "skipped" ]; then
+            MSG="✅ Deploy live: ${REPO}@${SHORT} (${COMPARE}) — migrations skipped"
+          else
+            MSG="⚠️ Deploy live: ${REPO}@${SHORT} (${COMPARE}) — migrations failed or not reachable"
+          fi
+          echo "text=${MSG}" >> $GITHUB_OUTPUT
+
+      - name: Post to Discord
+        if: ${{ success() }}
+        env:
+          DISCORD_DEPLOY_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+        run: |
+          set -e
+          curl -fsSL -H 'Content-Type: application/json' \
+            -d "{\"content\": \"${{ steps.msg.outputs.text }}\"}" \
+            "$DISCORD_DEPLOY_WEBHOOK"
+
+
