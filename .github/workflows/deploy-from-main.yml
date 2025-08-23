@@ -36,10 +36,18 @@ jobs:
           fi
           URL="https://houserubi-ka.com/deploy/run-migrations.php?token=${MIGRATIONS_TOKEN}"
           echo "Calling migrations endpoint: $URL"
+          BODY=""
           for i in $(seq 1 12); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            # Capture body and status code in one call
+            RESP=$(curl -s -w "\n%{http_code}" "$URL" || true)
+            code="${RESP##*$'\n'}"
+            BODY="${RESP%$'\n'*}"
             if [ "$code" = "200" ]; then
               echo "migrated=success" >> $GITHUB_OUTPUT
+              # pass body as multiline output
+              echo "details<<EOF" >> $GITHUB_OUTPUT
+              echo "$BODY" >> $GITHUB_OUTPUT
+              echo "EOF" >> $GITHUB_OUTPUT
               echo "Migrations endpoint returned 200"
               exit 0
             fi
@@ -47,6 +55,9 @@ jobs:
             sleep 5
           done
           echo "migrated=failed" >> $GITHUB_OUTPUT
+          echo "details<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
           echo "Migrations did not return 200 within timeout"
           exit 0
 
@@ -68,14 +79,44 @@ jobs:
           fi
           echo "text=${MSG}" >> $GITHUB_OUTPUT
 
+          # Summarize commits and changed files (scoped to public_html which is deployed)
+          COMMIT_COUNT=$(git rev-list --count ${BEFORE}..${AFTER})
+          COMMITS=$(git log --no-color --pretty=format:'- %h %s (%an)' ${BEFORE}..${AFTER} | head -n 15)
+          FILES=$(git diff --name-only ${BEFORE}..${AFTER} -- public_html | sed 's#^#- #' | head -n 25)
+          FILE_COUNT=$(git diff --name-only ${BEFORE}..${AFTER} -- public_html | wc -l | tr -d ' ')
+
+          BODY="Commits (${COMMIT_COUNT}):\n${COMMITS}\n\nChanged files in public_html (${FILE_COUNT}):\n${FILES}"
+
+          if [ -n "${{ steps.mig.outputs.details }}" ]; then
+            BODY+="\n\nMigrations output:\n${{ steps.mig.outputs.details }}"
+          fi
+
+          # Truncate to stay below Discord's 2000 char limit (keep some room)
+          MAX=1800
+          LEN=${#BODY}
+          if [ $LEN -gt $MAX ]; then
+            BODY="${BODY:0:$MAX}\n…"
+          fi
+
+          echo "body<<EOF" >> $GITHUB_OUTPUT
+          echo "$BODY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Post to Discord
         if: ${{ success() }}
         env:
           DISCORD_DEPLOY_WEBHOOK: ${{ secrets.DISCORD_DEPLOY_WEBHOOK }}
+          CONTENT: ${{ steps.msg.outputs.text }}
+          DETAILS: ${{ steps.msg.outputs.body }}
         run: |
           set -e
-          curl -fsSL -H 'Content-Type: application/json' \
-            -d "{\"content\": \"${{ steps.msg.outputs.text }}\"}" \
-            "$DISCORD_DEPLOY_WEBHOOK"
+          COMBINED="$CONTENT"
+          if [ -n "$DETAILS" ]; then
+            COMBINED="$COMBINED\n\n$DETAILS"
+          fi
+          # Expand \n to real newlines, then escape for JSON
+          ESCAPED=$(printf '%b' "$COMBINED" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e ':a;N;$!ba;s/\n/\\n/g')
+          echo "{\"content\": \"$ESCAPED\"}" > payload.json
+          curl -fsSL -H 'Content-Type: application/json' -d @payload.json "$DISCORD_DEPLOY_WEBHOOK"
 
 
