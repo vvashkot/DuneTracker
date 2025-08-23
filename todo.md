@@ -47,31 +47,39 @@ Distribution logs
  Final production config (client secrets, DB creds)
 
 🏠 Hub Chores (High Priority)
-- [ ] Weekly hub registrations (track who is registered this week)
-- [ ] Filters contributed per player vs weekly requirement
-- [ ] Move-out / Move-in assistance logs
-- [ ] Circuit roster (weekly)
-- [ ] Admin page to manage hub chores and quotas
+- [x] Weekly hub registrations (track who is registered this week)
+- [x] Filters contributed per player vs weekly requirement (user progress + quick add)
+- [x] Move-out / Move-in assistance logs (user self-log)
+- [ ] Circuit roster (weekly) – add user-visible view
+- [x] Admin page to manage hub chores and quotas
 
 🚜 Group Farming (High Priority)
-- [ ] Persist Spice→Melange distributions to `run_distributions`
-- [ ] Add time participation tracking (`left_at` or sessions) for weighted-by-time shares
+- [ ] Persist Spice→Melange distributions to `run_distributions` (with duplicate protection)
+- [ ] Add time participation tracking (`left_at` or sessions) for weighted-by-time shares + UI to mark leave/join
 - [ ] Multi-run distribution (select multiple runs in preview)
-- [ ] Weekly/daily run stats (participants, totals, outputs)
+- [ ] Weekly/daily run stats (participants, totals, outputs) + user "My Run Payouts"
 
 📦 Other Contributions (Medium)
 - [ ] Report: other hub resources contributed by players (filters, supplies)
-- [ ] Top resource contributors (date range)
+- [ ] Top resource contributors (date range) – public leaderboard
 
 🏛️ Landsraad (Medium)
-- [ ] Table for Landsraad points per player
-- [ ] Admin page to add/view points
-- [ ] Leaderboards and weekly totals
+- [x] Table for Landsraad points per player
+- [x] Admin page to add/view points
+- [ ] Leaderboards and weekly totals – public view
 
 ⚔️ Combat Statistics (Medium)
-- [ ] Table for combat events (ground kills, air kills, weapon)
-- [ ] Admin page to add/view combat logs
-- [ ] Top weapons/players, daily/weekly summaries
+- [x] Table for combat events (ground kills, air kills, weapon)
+- [x] Admin page to add/view combat logs
+- [ ] Top weapons/players, daily/weekly summaries – public view and weekly charts
+
+▶ Next Up (Implementation Order)
+1) Persist Spice→Melange distribution (single-run) with duplicate guard + UI button on run page
+2) Circuit roster user-visible view (current week)
+3) Landsraad public leaderboard + weekly totals
+4) Combat public leaderboards + weekly charts
+5) Time participation tracking (left/join) and weighted-by-time distribution
+6) Multi-run distribution workflow
 
 🗄️ Database Migrations
 - [ ] 019_add_run_participant_left_at.sql
