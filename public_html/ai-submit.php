@@ -16,6 +16,7 @@ $refined = [];
 $refinery_note = '';
 $landsraad = [];
 $missing_resources = [];
+$withdrawals = [];
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
@@ -25,7 +26,8 @@ function callOpenAIExtract(string $text): array {
             . 'Return ONLY JSON with keys: '
             . 'items (array of {resource_name, quantity, notes?}), '
             . 'participants (array of strings), target (personal|group|run), split (equal|weighted|none), shares (object mapping participant name to fraction between 0 and 1; only if split is weighted), run_hint?, '
-            . 'landsraad (array of entries, each {house?, item_name?, quantity?, points_per_unit?, bonus_pct?, total_points?, notes?}). '
+            . 'landsraad (array of entries, each {house?, item_name?, quantity?, points_per_unit?, bonus_pct?, total_points?, notes?}), '
+            . 'withdrawals (array of {resource_name, quantity, purpose?, notes?}). '
             . 'Infer integers; keep resource_name concise (matchable). If names in parentheses like (Cap/Kes/Vva) are present, output participants split by /. '
             . 'If text contains patterns like "split by Cap 50%, Kes 30%, Vva 20%" or similar, set split="weighted" and shares to {"Cap":0.5,"Kes":0.3,"Vva":0.2} (normalized to sum 1). Otherwise set split="equal" when participants are provided without explicit weights.';
     $userMsg = 'Text: ' . $text . "\nRespond with JSON only.";
@@ -278,11 +280,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 // Resolve resources now so review shows canonical names
                 $items = array_map('resolveResource', $items);
+
+                // Parse withdrawals from AI (optional)
+                $withdrawals = isset($parsed['withdrawals']) && is_array($parsed['withdrawals']) ? $parsed['withdrawals'] : [];
+                if (empty($withdrawals)) {
+                    // Heuristic: "withdrew 3 titanium", "removed 10 spice", etc.
+                    if (preg_match_all('/\\b(withdrew|withdraw|removed|spent|took)\\s+(\\d{1,3}(?:[\\d,]*)(?:\\.\\d+)?)\\s+([A-Za-z ]{2,})/i', $freeform, $wm, PREG_SET_ORDER)) {
+                        foreach ($wm as $m1) {
+                            $qtyStr = str_replace(',', '', $m1[2]);
+                            $withdrawals[] = [
+                                'resource_name' => trim($m1[3]),
+                                'quantity' => (float)$qtyStr,
+                                'purpose' => 'AI submit',
+                                'notes' => ''
+                            ];
+                        }
+                    }
+                }
+                // Resolve withdrawal resources for preview
+                $withdrawals = array_map('resolveResource', $withdrawals);
+
                 // Collect missing resource names
                 $seen = [];
                 foreach ($items as $it) {
                     if (empty($it['resolved_id'])) {
                         $label = (string)($it['resolved_name'] ?? $it['resource_name'] ?? '');
+                        $label = trim($label);
+                        if ($label !== '' && !isset($seen[strtolower($label)])) {
+                            $missing_resources[] = $label;
+                            $seen[strtolower($label)] = true;
+                        }
+                    }
+                }
+                // Include withdrawals missing resources
+                foreach ($withdrawals as $wit) {
+                    if (empty($wit['resolved_id'])) {
+                        $label = (string)($wit['resolved_name'] ?? $wit['resource_name'] ?? '');
                         $label = trim($label);
                         if ($label !== '' && !isset($seen[strtolower($label)])) {
                             $missing_resources[] = $label;
@@ -429,7 +462,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $rawParticipants = json_decode($_POST['participants_json'] ?? '[]', true) ?: [];
         $rawShares = json_decode($_POST['shares_json'] ?? 'null', true);
         $landsraadRaw = json_decode($_POST['landsraad_json'] ?? '[]', true) ?: [];
-        if (empty($rawItems) && empty($landsraadRaw)) {
+        $withdrawalsRaw = json_decode($_POST['withdrawals_json'] ?? '[]', true) ?: [];
+        if (empty($rawItems) && empty($landsraadRaw) && empty($withdrawalsRaw)) {
             $message = 'Nothing to save.';
             $message_type = 'error';
         } else {
@@ -439,6 +473,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $rname = trim((string)($it['resource_name'] ?? ''));
                 if ($rname === '') continue;
                 $ridCheck = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
+                if (!$ridCheck) { $missingSet[$rname] = true; }
+            }
+            foreach ($withdrawalsRaw as $wit) {
+                $rname = trim((string)($wit['resource_name'] ?? ''));
+                if ($rname === '') continue;
+                $ridCheck = isset($wit['resolved_id']) && $wit['resolved_id'] ? (int)$wit['resolved_id'] : findResourceIdByName($rname);
                 if (!$ridCheck) { $missingSet[$rname] = true; }
             }
             if (!empty($missingSet)) {
@@ -546,6 +586,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                         $stmt = $db->prepare("INSERT INTO landsraad_points (user_id, points, category, occurred_at, notes) VALUES (?, ?, ?, NOW(), ?)");
                         $stmt->execute([$user['db_id'], $total, $category, $noteFull ?: null]);
                     }
+                }
+                // Save withdrawals
+                foreach ($withdrawalsRaw as $wit) {
+                    $rname = trim((string)($wit['resource_name'] ?? ''));
+                    $qty = (float)($wit['quantity'] ?? 0);
+                    $purpose = trim((string)($wit['purpose'] ?? 'AI submit'));
+                    $notes = trim((string)($wit['notes'] ?? ''));
+                    if ($rname === '' || $qty <= 0) continue;
+                    $rid = isset($wit['resolved_id']) && $wit['resolved_id'] ? (int)$wit['resolved_id'] : findResourceIdByName($rname);
+                    if (!$rid) continue;
+                    $stmt = $db->prepare("INSERT INTO withdrawals (user_id, resource_id, quantity, purpose, notes, approval_status, approved_at) VALUES (?,?,?,?,?,'approved', NOW())");
+                    $stmt->execute([$user['db_id'], (int)$rid, $qty, ($purpose ?: 'AI submit'), ($notes ?: null)]);
                 }
                 $message = 'Submission saved.';
                 $message_type = 'success';
@@ -666,6 +718,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           </tbody></table>
         </div>
         <?php endif; ?>
+        <?php if (!empty($withdrawals)): ?>
+        <div class="table-responsive" style="margin-top:1rem;">
+          <h4>Withdrawals</h4>
+          <table class="data-table"><thead><tr><th>Resource</th><th>Quantity</th><th>Purpose</th><th>Notes</th></tr></thead><tbody>
+            <?php foreach ($withdrawals as $wit): ?>
+              <tr>
+                <td><?php echo htmlspecialchars((string)($wit['resolved_name'] ?? ($wit['resource_name'] ?? ''))); ?></td>
+                <td class="quantity">-<?php echo number_format((float)($wit['quantity'] ?? 0), 2); ?></td>
+                <td><?php echo htmlspecialchars((string)($wit['purpose'] ?? '')); ?></td>
+                <td><?php echo htmlspecialchars((string)($wit['notes'] ?? '')); ?></td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody></table>
+        </div>
+        <?php endif; ?>
         <?php if (!empty($resolvedParticipants)): ?>
           <div style="margin:0.75rem 0; color:var(--text-secondary);">
             Participants: <?php echo htmlspecialchars(implode(', ', array_map(fn($p) => $p['name'], $resolvedParticipants))); ?>
@@ -686,6 +753,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
           <input type="hidden" name="shares_json" value='<?php echo json_encode($shares); ?>'>
           <input type="hidden" name="refined_json" value='<?php echo json_encode($refined); ?>'>
           <input type="hidden" name="landsraad_json" value='<?php echo json_encode($landsraad); ?>'>
+          <input type="hidden" name="withdrawals_json" value='<?php echo json_encode($withdrawals); ?>'>
           <?php if (!empty($refined)): ?>
           <label style="display:inline-flex; align-items:center; gap:0.5rem; margin-right:1rem;">
             <input type="checkbox" name="save_refined" value="1" checked> Save refined outputs too
