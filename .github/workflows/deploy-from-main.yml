@@ -16,14 +16,12 @@ jobs:
           fetch-depth: 0
 
       - name: Push public_html to deploy branch
-        uses: s0/git-publish-subdir-action@v2.6.0
+        uses: peaceiris/actions-gh-pages@v3
         with:
-          repository: ${{ github.repository }}
-          branch: deploy
-          folder: public_html
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          clean: true
-          force: true
+          publish_dir: ./public_html
+          publish_branch: deploy
+          force_orphan: true
 
       - name: Try migrations (optional)
         id: mig
