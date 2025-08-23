@@ -15,6 +15,7 @@ $shares = [];
 $refined = [];
 $refinery_note = '';
 $landsraad = [];
+$missing_resources = [];
 
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
@@ -227,6 +228,36 @@ function mapSharesToParticipants(array $rawShares, array $participants): array {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     verifyPOST();
+    if ($_POST['action'] === 'add_missing') {
+        // Admin-only: add missing resources quickly
+        if (!isAdmin()) {
+            $message = 'Only admins can add new resources.';
+            $message_type = 'error';
+        } else {
+            try {
+                $names = $_POST['res_name'] ?? [];
+                $cats = $_POST['res_category'] ?? [];
+                $db = getDB();
+                foreach ((array)$names as $idx => $n) {
+                    $name = trim((string)$n);
+                    if ($name === '') continue;
+                    $cat = in_array(($cats[$idx] ?? 'Raw Materials'), ['Raw Materials','Refined']) ? $cats[$idx] : 'Raw Materials';
+                    try {
+                        $stmt = $db->prepare("INSERT INTO resources (name, category) VALUES (?, ?)");
+                        $stmt->execute([$name, $cat]);
+                    } catch (Throwable $e) {
+                        // ignore duplicates
+                    }
+                }
+                // Re-run analyze with prior text
+                $_POST['action'] = 'analyze';
+                $_POST['freeform'] = $_POST['freeform_prev'] ?? '';
+            } catch (Throwable $e) {
+                $message = 'Failed to add resources.';
+                $message_type = 'error';
+            }
+        }
+    }
     if ($_POST['action'] === 'analyze') {
         $freeform = trim($_POST['freeform'] ?? '');
         if ($freeform === '') {
@@ -247,6 +278,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 }
                 // Resolve resources now so review shows canonical names
                 $items = array_map('resolveResource', $items);
+                // Collect missing resource names
+                $seen = [];
+                foreach ($items as $it) {
+                    if (empty($it['resolved_id'])) {
+                        $label = (string)($it['resolved_name'] ?? $it['resource_name'] ?? '');
+                        $label = trim($label);
+                        if ($label !== '' && !isset($seen[strtolower($label)])) {
+                            $missing_resources[] = $label;
+                            $seen[strtolower($label)] = true;
+                        }
+                    }
+                }
 
                 // Compute refined outputs from inputs (Spice→Melange; Stravidium+Titanium→Plastanium)
                 $totals = ['spice'=>0, 'titanium'=>0, 'stravidium'=>0];
@@ -390,6 +433,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $message = 'Nothing to save.';
             $message_type = 'error';
         } else {
+            // Validate all resources exist; if not, prompt to add
+            $missingSet = [];
+            foreach ($rawItems as $it) {
+                $rname = trim((string)($it['resource_name'] ?? ''));
+                if ($rname === '') continue;
+                $ridCheck = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
+                if (!$ridCheck) { $missingSet[$rname] = true; }
+            }
+            if (!empty($missingSet)) {
+                $message = 'Resource not added, would you like to add it now?';
+                $message_type = 'error';
+                $missing_resources = array_keys($missingSet);
+            } else {
             // Resolve participants again server-side
             $participants = resolveParticipantNames($rawParticipants);
             $validUsers = array_values(array_filter($participants, fn($p) => !empty($p['id'])));
@@ -445,6 +501,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     } else {
                         addContribution($user['db_id'], (int)$rid, $qty, $notes ?: null);
                     }
+
+                    // Landsraad goals auto-log: if an active goal matches this item and user is a member, log qty
+                    try {
+                        $stmtGoal = $db->prepare("SELECT id FROM landsraad_item_goals WHERE active=1 AND LOWER(item_name)=LOWER(?) LIMIT 1");
+                        $stmtGoal->execute([$rname]);
+                        $goalId = (int)($stmtGoal->fetchColumn() ?: 0);
+                        if ($goalId > 0) {
+                            $stmtMem = $db->prepare("SELECT 1 FROM landsraad_goal_members WHERE goal_id=? AND user_id=? LIMIT 1");
+                            $stmtMem->execute([$goalId, $user['db_id']]);
+                            if ($stmtMem->fetchColumn()) {
+                                $stmtLog = $db->prepare("INSERT INTO landsraad_goal_stock_logs (goal_id, user_id, qty, note) VALUES (?,?,?,?)");
+                                $stmtLog->execute([$goalId, $user['db_id'], $qty, ($notes ?: 'AI submit')]);
+                            }
+                        }
+                    } catch (Throwable $ignored) { /* best effort; ignore */ }
                 }
                 // Save Landsraad entries
                 foreach ($landsraadRaw as $lr) {
@@ -482,6 +553,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 error_log('AI save_multi failed: ' . $e->getMessage());
                 $message = 'Failed to save.';
                 $message_type = 'error';
+            }
             }
         }
     }
@@ -527,9 +599,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
       <p style="color:var(--text-secondary); font-size:0.9rem;">Describe what you want to log, e.g. “Added 10,000 Spice to the guild”, “Logged 5 filters to hub”, or “I contributed 10,500 points to the Landsraad this week for House Alexis”.</p>
       <form method="POST">
         <?php echo csrfField(); ?>
-        <input type="hidden" name="action" value="analyze">
-        <textarea name="freeform" rows="4" class="form-control" placeholder="Type your note..."><?php echo htmlspecialchars($_POST['freeform'] ?? ''); ?></textarea>
-        <button class="btn btn-primary" type="submit" style="margin-top:0.75rem;">Analyze</button>
+        <?php if (!empty($missing_resources)): ?>
+          <input type="hidden" name="action" value="add_missing">
+          <input type="hidden" name="freeform_prev" value="<?php echo htmlspecialchars($_POST['freeform'] ?? ''); ?>">
+          <div class="alert alert-error" style="margin-bottom:0.75rem;">Some resources are not in the database. Add them and re-run analyze:</div>
+          <?php foreach ($missing_resources as $idx => $rname): ?>
+            <div class="form-inline" style="gap:0.5rem; margin-bottom:0.5rem;">
+              <input type="text" name="res_name[]" class="form-control" value="<?php echo htmlspecialchars($rname); ?>">
+              <select name="res_category[]" class="form-control"><option value="Raw Materials">Raw Materials</option><option value="Refined">Refined</option></select>
+            </div>
+          <?php endforeach; ?>
+          <button class="btn btn-primary" type="submit">Add Resources & Re-Analyze</button>
+        <?php else: ?>
+          <input type="hidden" name="action" value="analyze">
+          <textarea name="freeform" rows="4" class="form-control" placeholder="Type your note...">&lt;?php echo htmlspecialchars($_POST['freeform'] ?? ''); ?&gt;</textarea>
+          <button class="btn btn-primary" type="submit" style="margin-top:0.75rem;">Analyze</button>
+        <?php endif; ?>
       </form>
     </div>
 
