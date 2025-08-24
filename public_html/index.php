@@ -433,6 +433,42 @@ try {
             </div>
         </div>
 
+        <!-- Quick AI Submission Form -->
+        <div class="card" style="margin: 1.5rem 0;">
+            <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem;">
+                <h3 style="margin: 0;">🤖 Quick AI Submit</h3>
+                <span style="color: var(--text-secondary); font-size: 0.875rem;">
+                    Describe what you want to log (e.g., "Added 10,000 Spice", "5 filters to hub", "10,500 landsraad points")
+                </span>
+            </div>
+            
+            <div id="ai-submit-form">
+                <div style="display: flex; gap: 0.75rem;">
+                    <input type="text" 
+                           id="ai-input" 
+                           class="form-control" 
+                           placeholder="Type your submission here..."
+                           style="flex: 1;">
+                    <button id="ai-analyze-btn" class="btn btn-primary">Analyze</button>
+                </div>
+                <div id="ai-loading" style="display: none; margin-top: 1rem; color: var(--text-secondary);">
+                    Processing your submission...
+                </div>
+                <div id="ai-error" class="alert alert-error" style="display: none; margin-top: 1rem;"></div>
+                <div id="ai-success" class="alert alert-success" style="display: none; margin-top: 1rem;"></div>
+            </div>
+            
+            <!-- Preview Section -->
+            <div id="ai-preview" style="display: none; margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border-color);">
+                <h4>Review & Confirm</h4>
+                <div id="ai-preview-content"></div>
+                <div style="margin-top: 1rem;">
+                    <button id="ai-confirm-btn" class="btn btn-success">Confirm & Save</button>
+                    <button id="ai-cancel-btn" class="btn btn-secondary" style="margin-left: 0.5rem;">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <div class="dashboard-container">
             <!-- Left Sidebar (Goals + Runs) -->
             <div class="left-sidebar">
@@ -670,5 +706,232 @@ try {
             </div>
         </div>
     </div>
+
+    <script>
+    // Quick AI Submission Handler
+    (function() {
+        const aiInput = document.getElementById('ai-input');
+        const analyzeBtn = document.getElementById('ai-analyze-btn');
+        const confirmBtn = document.getElementById('ai-confirm-btn');
+        const cancelBtn = document.getElementById('ai-cancel-btn');
+        const loadingDiv = document.getElementById('ai-loading');
+        const errorDiv = document.getElementById('ai-error');
+        const successDiv = document.getElementById('ai-success');
+        const previewDiv = document.getElementById('ai-preview');
+        const previewContent = document.getElementById('ai-preview-content');
+        
+        let currentSubmissionData = null;
+        
+        // Handle Enter key in input
+        aiInput.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                analyzeBtn.click();
+            }
+        });
+        
+        // Analyze button handler
+        analyzeBtn.addEventListener('click', async function() {
+            const text = aiInput.value.trim();
+            if (!text) {
+                showError('Please enter some text to analyze');
+                return;
+            }
+            
+            hideAllMessages();
+            loadingDiv.style.display = 'block';
+            analyzeBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/ai-submit.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'analyze',
+                        freeform: text
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (!data.success) {
+                    showError(data.message || 'Failed to analyze submission');
+                    return;
+                }
+                
+                currentSubmissionData = data;
+                showPreview(data);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to process submission. Please try again.');
+            } finally {
+                loadingDiv.style.display = 'none';
+                analyzeBtn.disabled = false;
+            }
+        });
+        
+        // Confirm button handler
+        confirmBtn.addEventListener('click', async function() {
+            if (!currentSubmissionData) return;
+            
+            hideAllMessages();
+            loadingDiv.style.display = 'block';
+            confirmBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/ai-submit.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        action: 'save',
+                        items: currentSubmissionData.items || [],
+                        participants: currentSubmissionData.participants?.map(p => p.name) || [],
+                        shares: currentSubmissionData.shares || {},
+                        landsraad: currentSubmissionData.landsraad || [],
+                        withdrawals: currentSubmissionData.withdrawals || []
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showSuccess('Submission saved successfully!');
+                    aiInput.value = '';
+                    previewDiv.style.display = 'none';
+                    currentSubmissionData = null;
+                    
+                    // Reload page after 2 seconds to show updated inventory
+                    setTimeout(() => window.location.reload(), 2000);
+                } else {
+                    showError(data.message || 'Failed to save submission');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Failed to save submission. Please try again.');
+            } finally {
+                loadingDiv.style.display = 'none';
+                confirmBtn.disabled = false;
+            }
+        });
+        
+        // Cancel button handler
+        cancelBtn.addEventListener('click', function() {
+            previewDiv.style.display = 'none';
+            currentSubmissionData = null;
+            hideAllMessages();
+        });
+        
+        function showPreview(data) {
+            let html = '';
+            
+            // Show items
+            if (data.items && data.items.length > 0) {
+                html += '<h5>Resources to Add:</h5>';
+                html += '<table class="data-table" style="margin-bottom: 1rem;"><thead><tr><th>Resource</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>';
+                data.items.forEach(item => {
+                    html += `<tr>
+                        <td>${escapeHtml(item.resolved_name || item.resource_name || '')}</td>
+                        <td class="quantity">${formatNumber(item.quantity || 0)}</td>
+                        <td>${escapeHtml(item.notes || '')}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+            }
+            
+            // Show refined outputs
+            if (data.refined && data.refined.length > 0) {
+                html += '<h5>Refined Outputs:</h5>';
+                html += '<table class="data-table" style="margin-bottom: 1rem;"><thead><tr><th>Resource</th><th>Quantity</th><th>Notes</th></tr></thead><tbody>';
+                data.refined.forEach(item => {
+                    html += `<tr>
+                        <td>${escapeHtml(item.resolved_name || item.resource_name || '')}</td>
+                        <td class="quantity">${formatNumber(item.quantity || 0)}</td>
+                        <td>${escapeHtml(item.notes || '')}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+            }
+            
+            // Show Landsraad entries
+            if (data.landsraad && data.landsraad.length > 0) {
+                html += '<h5>Landsraad Points:</h5>';
+                html += '<table class="data-table" style="margin-bottom: 1rem;"><thead><tr><th>House</th><th>Item</th><th>Points</th></tr></thead><tbody>';
+                data.landsraad.forEach(item => {
+                    html += `<tr>
+                        <td>${escapeHtml(item.house || '')}</td>
+                        <td>${escapeHtml(item.item_name || '')}</td>
+                        <td class="quantity">${formatNumber(item.total_points || 0)}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+            }
+            
+            // Show withdrawals
+            if (data.withdrawals && data.withdrawals.length > 0) {
+                html += '<h5>Withdrawals:</h5>';
+                html += '<table class="data-table" style="margin-bottom: 1rem;"><thead><tr><th>Resource</th><th>Quantity</th><th>Purpose</th></tr></thead><tbody>';
+                data.withdrawals.forEach(item => {
+                    html += `<tr>
+                        <td>${escapeHtml(item.resolved_name || item.resource_name || '')}</td>
+                        <td class="quantity">-${formatNumber(item.quantity || 0)}</td>
+                        <td>${escapeHtml(item.purpose || 'AI submit')}</td>
+                    </tr>`;
+                });
+                html += '</tbody></table>';
+            }
+            
+            // Show participants if any
+            if (data.participants && data.participants.length > 0) {
+                html += '<p style="color: var(--text-secondary); font-size: 0.875rem;">Participants: ';
+                html += data.participants.map(p => escapeHtml(p.name)).join(', ');
+                html += '</p>';
+            }
+            
+            // Check for missing resources
+            if (data.missing_resources && data.missing_resources.length > 0) {
+                html += '<div class="alert alert-warning" style="margin-top: 1rem;">';
+                html += 'The following resources are not in the database: ';
+                html += data.missing_resources.map(r => escapeHtml(r)).join(', ');
+                html += '. Please contact an admin to add them.';
+                html += '</div>';
+            }
+            
+            previewContent.innerHTML = html;
+            previewDiv.style.display = 'block';
+        }
+        
+        function showError(message) {
+            hideAllMessages();
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+        
+        function showSuccess(message) {
+            hideAllMessages();
+            successDiv.textContent = message;
+            successDiv.style.display = 'block';
+        }
+        
+        function hideAllMessages() {
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function formatNumber(num) {
+            return new Intl.NumberFormat().format(num);
+        }
+    })();
+    </script>
 </body>
 </html>

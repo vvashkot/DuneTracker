@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/ai-submission.php';
 
 requireLogin();
 $user = getCurrentUser();
@@ -18,6 +19,8 @@ $landsraad = [];
 $missing_resources = [];
 $withdrawals = [];
 
+// Functions moved to includes/ai-submission.php
+/*
 function callOpenAIExtract(string $text): array {
     $apiKey = getenv('OPENAI_API_KEY') ?: (defined('OPENAI_API_KEY') ? OPENAI_API_KEY : null);
     if (!$apiKey) throw new Exception('Missing OPENAI_API_KEY');
@@ -227,6 +230,7 @@ function mapSharesToParticipants(array $rawShares, array $participants): array {
     }
     return $weights;
 }
+*/
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     verifyPOST();
@@ -266,165 +270,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $message = 'Please enter some text.';
             $message_type = 'error';
         } else {
-            try {
-                $parsed = callOpenAIExtract($freeform);
-                $items = isset($parsed['items']) && is_array($parsed['items']) ? $parsed['items'] : [];
-                if (empty($items)) {
-                    // Backward compat: single item keys
-                    $single = [
-                        'resource_name' => (string)($parsed['resource_name'] ?? ''),
-                        'quantity' => (int)($parsed['quantity'] ?? 0),
-                        'notes' => (string)($parsed['notes'] ?? '')
-                    ];
-                    if (!empty($single['resource_name']) && $single['quantity'] > 0) $items = [$single];
-                }
-                // Resolve resources now so review shows canonical names
-                $items = array_map('resolveResource', $items);
-
-                // Parse withdrawals from AI (optional)
-                $withdrawals = isset($parsed['withdrawals']) && is_array($parsed['withdrawals']) ? $parsed['withdrawals'] : [];
-                if (empty($withdrawals)) {
-                    // Heuristic: "withdrew 3 titanium", "removed 10 spice", etc.
-                    if (preg_match_all('/\\b(withdrew|withdraw|removed|spent|took)\\s+(\\d{1,3}(?:[\\d,]*)(?:\\.\\d+)?)\\s+([A-Za-z ]{2,})/i', $freeform, $wm, PREG_SET_ORDER)) {
-                        foreach ($wm as $m1) {
-                            $qtyStr = str_replace(',', '', $m1[2]);
-                            $withdrawals[] = [
-                                'resource_name' => trim($m1[3]),
-                                'quantity' => (float)$qtyStr,
-                                'purpose' => 'AI submit',
-                                'notes' => ''
-                            ];
-                        }
-                    }
-                }
-                // Resolve withdrawal resources for preview
-                $withdrawals = array_map('resolveResource', $withdrawals);
-
-                // Collect missing resource names
-                $seen = [];
-                foreach ($items as $it) {
-                    if (empty($it['resolved_id'])) {
-                        $label = (string)($it['resolved_name'] ?? $it['resource_name'] ?? '');
-                        $label = trim($label);
-                        if ($label !== '' && !isset($seen[strtolower($label)])) {
-                            $missing_resources[] = $label;
-                            $seen[strtolower($label)] = true;
-                        }
-                    }
-                }
-                // Include withdrawals missing resources
-                foreach ($withdrawals as $wit) {
-                    if (empty($wit['resolved_id'])) {
-                        $label = (string)($wit['resolved_name'] ?? $wit['resource_name'] ?? '');
-                        $label = trim($label);
-                        if ($label !== '' && !isset($seen[strtolower($label)])) {
-                            $missing_resources[] = $label;
-                            $seen[strtolower($label)] = true;
-                        }
-                    }
-                }
-
-                // Compute refined outputs from inputs (Spice→Melange; Stravidium+Titanium→Plastanium)
-                $totals = ['spice'=>0, 'titanium'=>0, 'stravidium'=>0];
-                foreach ($items as $it) {
-                    $n = normalizeResourceName((string)($it['resource_name'] ?? ''));
-                    $q = (int)($it['quantity'] ?? 0);
-                    if (isset($totals[$n])) $totals[$n] += $q;
-                }
-                $discounted = stripos($freeform, 'discount') !== false || stripos($freeform, '7,500') !== false;
-                if ($totals['spice'] > 0) {
-                    $per = $discounted ? 7500 : 10000;
-                    $units = intdiv($totals['spice'], $per);
-                    $mel = $units * 200;
-                    if ($mel > 0) {
-                        $refined[] = resolveResource(['resource_name'=>'melange', 'quantity'=>$mel, 'notes'=> $discounted ? 'Discounted refinery' : 'Standard refinery']);
-                        $refinery_note = $discounted ? '(discounted 7,500→200)' : '(10,000→200)';
-                    }
-                }
-                if ($totals['titanium'] > 0 || $totals['stravidium'] > 0) {
-                    $units = min(intdiv((int)$totals['stravidium'], 3), intdiv((int)$totals['titanium'], 4));
-                    if ($units > 0) {
-                        $refined[] = resolveResource(['resource_name'=>'plastanium', 'quantity'=>$units, 'notes'=>'3 Stravidium + 4 Titanium → 1 Plastanium']);
-                    }
-                }
-                $names = [];
-                if (!empty($parsed['participants']) && is_array($parsed['participants'])) {
-                    $names = $parsed['participants'];
-                }
-                $resolvedParticipants = resolveParticipantNames($names);
-                if (!empty($parsed['shares']) && is_array($parsed['shares'])) {
-                    $shares = $parsed['shares'];
-                } elseif (!empty($parsed['shares']) && is_object($parsed['shares'])) {
-                    $shares = (array)$parsed['shares'];
-                }
-                // Landsraad parsing
-                $landsraad = [];
-                if (!empty($parsed['landsraad']) && is_array($parsed['landsraad'])) {
-                    foreach ($parsed['landsraad'] as $lr) {
-                        $house = trim((string)($lr['house'] ?? ''));
-                        $itemName = trim((string)($lr['item_name'] ?? ''));
-                        $qty = isset($lr['quantity']) ? (int)$lr['quantity'] : 0;
-                        $ppu = isset($lr['points_per_unit']) ? (int)$lr['points_per_unit'] : 0;
-                        $bonus = isset($lr['bonus_pct']) ? (float)$lr['bonus_pct'] : 0.0;
-                        $total = isset($lr['total_points']) ? (int)$lr['total_points'] : 0;
-                        $note = trim((string)($lr['notes'] ?? ''));
-
-                        // Resolve landsraad item if provided
-                        $itemId = null; $createItem = false;
-                        if ($itemName !== '') {
-                            $stmt = $db->prepare("SELECT id, points_per_unit FROM landsraad_items WHERE active=1 AND LOWER(name)=LOWER(?) LIMIT 1");
-                            $stmt->execute([$itemName]);
-                            $row = $stmt->fetch();
-                            if ($row) {
-                                $itemId = (int)$row['id'];
-                                if ($ppu <= 0 && isset($row['points_per_unit'])) { $ppu = (int)$row['points_per_unit']; }
-                            } else {
-                                // Will create on save if ppu>0
-                                $createItem = true;
-                            }
-                        }
-
-                        if ($total <= 0) {
-                            if ($qty > 0 && $ppu > 0) {
-                                $total = (int)floor($qty * $ppu * (1 + ($bonus/100.0)));
-                            }
-                        }
-                        $landsraad[] = [
-                            'house' => $house,
-                            'item_name' => $itemName,
-                            'item_id' => $itemId,
-                            'create_item' => $createItem ? 1 : 0,
-                            'quantity' => $qty,
-                            'points_per_unit' => $ppu,
-                            'bonus_pct' => $bonus,
-                            'total_points' => $total,
-                            'notes' => $note,
-                        ];
-                    }
-                } else {
-                    // Heuristic: direct landsraad points line e.g., "I contributed 10,500 points to the landsraad this week for House Alexis"
-                    if (preg_match('/(\d[\d,]*)\s*points?\s+to\s+the\s+landsraad/i', $freeform, $m)) {
-                        $p = (int)str_replace(',', '', $m[1]);
-                        $house = '';
-                        if (preg_match('/for\s+House\s+([A-Za-z0-9\- ]+)/i', $freeform, $hm)) {
-                            $house = trim($hm[1]);
-                        }
-                        $landsraad[] = [
-                            'house' => $house,
-                            'item_name' => '',
-                            'item_id' => null,
-                            'create_item' => 0,
-                            'quantity' => 0,
-                            'points_per_unit' => 0,
-                            'bonus_pct' => 0,
-                            'total_points' => $p,
-                            'notes' => 'Direct points',
-                        ];
-                    }
-                }
-            } catch (Throwable $e) {
-                error_log('AI analyze error: ' . $e->getMessage());
-                $message = 'AI failed to analyze input.';
+            $result = processAISubmission($freeform, $user);
+            if ($result['success']) {
+                $parsed = $result['parsed'];
+                $items = $result['items'];
+                $refined = $result['refined'];
+                $landsraad = $result['landsraad'];
+                $withdrawals = $result['withdrawals'];
+                $resolvedParticipants = $result['participants'];
+                $shares = $result['shares'];
+                $missing_resources = $result['missing_resources'];
+                $refinery_note = $result['refinery_note'];
+            } else {
+                $message = $result['message'];
                 $message_type = 'error';
             }
         }
@@ -463,149 +321,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $rawShares = json_decode($_POST['shares_json'] ?? 'null', true);
         $landsraadRaw = json_decode($_POST['landsraad_json'] ?? '[]', true) ?: [];
         $withdrawalsRaw = json_decode($_POST['withdrawals_json'] ?? '[]', true) ?: [];
+        
         if (empty($rawItems) && empty($landsraadRaw) && empty($withdrawalsRaw)) {
             $message = 'Nothing to save.';
             $message_type = 'error';
         } else {
-            // Validate all resources exist; if not, prompt to add
-            $missingSet = [];
-            foreach ($rawItems as $it) {
-                $rname = trim((string)($it['resource_name'] ?? ''));
-                if ($rname === '') continue;
-                $ridCheck = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
-                if (!$ridCheck) { $missingSet[$rname] = true; }
-            }
-            foreach ($withdrawalsRaw as $wit) {
-                $rname = trim((string)($wit['resource_name'] ?? ''));
-                if ($rname === '') continue;
-                $ridCheck = isset($wit['resolved_id']) && $wit['resolved_id'] ? (int)$wit['resolved_id'] : findResourceIdByName($rname);
-                if (!$ridCheck) { $missingSet[$rname] = true; }
-            }
-            if (!empty($missingSet)) {
-                $message = 'Resource not added, would you like to add it now?';
-                $message_type = 'error';
-                $missing_resources = array_keys($missingSet);
-            } else {
-            // Resolve participants again server-side
-            $participants = resolveParticipantNames($rawParticipants);
-            $validUsers = array_values(array_filter($participants, fn($p) => !empty($p['id'])));
-            $numUsers = count($validUsers);
-            try {
-                foreach ($rawItems as $it) {
-                    $rname = trim((string)($it['resource_name'] ?? ''));
-                    $qty = (int)($it['quantity'] ?? 0);
-                    $notes = trim((string)($it['notes'] ?? ''));
-                    if ($rname === '' || $qty <= 0) continue;
-                    $rid = isset($it['resolved_id']) && $it['resolved_id'] ? (int)$it['resolved_id'] : findResourceIdByName($rname);
-                    if (!$rid) continue;
-                    if ($numUsers > 0) {
-                        // Build weights using fuzzy mapping for share keys
-                        $weights = [];
-                        $sum = 0.0;
-                        if (is_array($rawShares) && !empty($rawShares)) {
-                            $weights = mapSharesToParticipants($rawShares, $validUsers);
-                            $sum = array_sum($weights);
-                        }
-                        if ($sum <= 0) {
-                            // equal split
-                            foreach ($validUsers as $p) { $weights[$p['id']] = 1.0; }
-                            $sum = (float)$numUsers;
-                        }
-                        // Normalize and allocate integer quantities using largest remainder
-                        $alloc = [];
-                        $fractions = [];
-                        $assigned = 0;
-                        foreach ($validUsers as $p) {
-                            $w = $weights[$p['id']] / $sum;
-                            $portion = $qty * $w;
-                            $q = (int)floor($portion);
-                            $alloc[$p['id']] = $q;
-                            $fractions[$p['id']] = $portion - $q;
-                            $assigned += $q;
-                        }
-                        $rem = $qty - $assigned;
-                        if ($rem > 0) {
-                            arsort($fractions);
-                            foreach (array_keys($fractions) as $uid) {
-                                if ($rem <= 0) break;
-                                $alloc[$uid] += 1;
-                                $rem--;
-                            }
-                        }
-                        foreach ($validUsers as $p) {
-                            $q = $alloc[$p['id']] ?? 0;
-                            if ($q > 0) {
-                                addContribution($p['id'], (int)$rid, $q, $notes ? ($notes . ' (AI split)') : 'AI split');
-                            }
-                        }
-                    } else {
-                        addContribution($user['db_id'], (int)$rid, $qty, $notes ?: null);
-                    }
-
-                    // Landsraad goals auto-log: if an active goal matches this item and user is a member, log qty
-                    try {
-                        $stmtGoal = $db->prepare("SELECT id FROM landsraad_item_goals WHERE active=1 AND LOWER(item_name)=LOWER(?) LIMIT 1");
-                        $stmtGoal->execute([$rname]);
-                        $goalId = (int)($stmtGoal->fetchColumn() ?: 0);
-                        if ($goalId > 0) {
-                            $stmtMem = $db->prepare("SELECT 1 FROM landsraad_goal_members WHERE goal_id=? AND user_id=? LIMIT 1");
-                            $stmtMem->execute([$goalId, $user['db_id']]);
-                            if ($stmtMem->fetchColumn()) {
-                                $stmtLog = $db->prepare("INSERT INTO landsraad_goal_stock_logs (goal_id, user_id, qty, note) VALUES (?,?,?,?)");
-                                $stmtLog->execute([$goalId, $user['db_id'], $qty, ($notes ?: 'AI submit')]);
-                            }
-                        }
-                    } catch (Throwable $ignored) { /* best effort; ignore */ }
-                }
-                // Save Landsraad entries
-                foreach ($landsraadRaw as $lr) {
-                    $house = trim((string)($lr['house'] ?? ''));
-                    $itemName = trim((string)($lr['item_name'] ?? ''));
-                    $itemId = isset($lr['item_id']) && $lr['item_id'] ? (int)$lr['item_id'] : null;
-                    $createItem = !empty($lr['create_item']);
-                    $qty = (int)($lr['quantity'] ?? 0);
-                    $ppu = (int)($lr['points_per_unit'] ?? 0);
-                    $bonus = (float)($lr['bonus_pct'] ?? 0);
-                    $total = (int)($lr['total_points'] ?? 0);
-                    $notes = trim((string)($lr['notes'] ?? ''));
-                    if ($total <= 0 && $qty > 0 && $ppu > 0) {
-                        $total = (int)floor($qty * $ppu * (1 + ($bonus/100.0)));
-                    }
-                    if ($itemId === null && $createItem && $itemName !== '' && $ppu > 0) {
-                        $stmt = $db->prepare("INSERT INTO landsraad_items (name, points_per_unit, created_by) VALUES (?, ?, ?)");
-                        $stmt->execute([$itemName, $ppu, $user['db_id']]);
-                        $itemId = (int)$db->lastInsertId();
-                    }
-                    if ($total > 0) {
-                        $category = $house ? ('House: ' . $house) : null;
-                        $noteFull = trim(($notes ? ($notes . ' | ') : '')
-                            . ($itemName !== '' ? ('Item: ' . $itemName . ', ') : '')
-                            . ($qty > 0 ? ('Qty: ' . $qty . ', ') : '')
-                            . ($ppu > 0 ? ('PPU: ' . $ppu . ', ') : '')
-                            . ($bonus > 0 ? ('Bonus%: ' . $bonus) : ''));
-                        $stmt = $db->prepare("INSERT INTO landsraad_points (user_id, points, category, occurred_at, notes) VALUES (?, ?, ?, NOW(), ?)");
-                        $stmt->execute([$user['db_id'], $total, $category, $noteFull ?: null]);
-                    }
-                }
-                // Save withdrawals
-                foreach ($withdrawalsRaw as $wit) {
-                    $rname = trim((string)($wit['resource_name'] ?? ''));
-                    $qty = (float)($wit['quantity'] ?? 0);
-                    $purpose = trim((string)($wit['purpose'] ?? 'AI submit'));
-                    $notes = trim((string)($wit['notes'] ?? ''));
-                    if ($rname === '' || $qty <= 0) continue;
-                    $rid = isset($wit['resolved_id']) && $wit['resolved_id'] ? (int)$wit['resolved_id'] : findResourceIdByName($rname);
-                    if (!$rid) continue;
-                    $stmt = $db->prepare("INSERT INTO withdrawals (user_id, resource_id, quantity, purpose, notes, approval_status, approved_at) VALUES (?,?,?,?,?,'approved', NOW())");
-                    $stmt->execute([$user['db_id'], (int)$rid, $qty, ($purpose ?: 'AI submit'), ($notes ?: null)]);
-                }
-                $message = 'Submission saved.';
+            $result = saveAISubmission($rawItems, $rawParticipants, $rawShares, $landsraadRaw, $withdrawalsRaw, $user);
+            if ($result['success']) {
+                $message = $result['message'];
                 $message_type = 'success';
-            } catch (Throwable $e) {
-                error_log('AI save_multi failed: ' . $e->getMessage());
-                $message = 'Failed to save.';
+            } else {
+                $message = $result['message'];
                 $message_type = 'error';
-            }
+                if (!empty($result['missing_resources'])) {
+                    $missing_resources = $result['missing_resources'];
+                }
             }
         }
     }
